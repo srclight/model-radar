@@ -12,3 +12,6 @@ config.json
 
 # CLAUDE.md is private — keep canonical copy in Vault only
 CLAUDE.md
+
+# Local Vault mirror / private analysis (sync to Dropbox/Vault if desired)
+vault/

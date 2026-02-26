@@ -22,15 +22,43 @@ def main(ctx: click.Context):
 @click.option("--transport", type=click.Choice(["stdio", "sse"]), default="stdio",
               help="MCP transport (default: stdio)")
 @click.option("--port", type=int, default=8765, help="Port for SSE transport")
-def serve(transport: str, port: int):
+@click.option("--web", is_flag=True, help="Serve dashboard and REST API at / and /api/* (SSE only)")
+def serve(transport: str, port: int, web: bool):
     """Start the MCP server."""
+    import anyio
+
     from .server import create_server
 
     server = create_server()
     if transport == "sse":
+        # Local only: bind to localhost so the server is never exposed on the network
         server.settings.host = "127.0.0.1"
         server.settings.port = port
+        if web:
+            from .web import add_web_routes
+            add_web_routes(server)
+        # Serve both SSE and Streamable HTTP on the same port so Cursor can connect
+        # (Cursor tries Streamable HTTP first, then SSE)
+        from .server import make_sse_and_streamable_http_app
+        import uvicorn
+        app = make_sse_and_streamable_http_app(mount_path="/")
+        config = uvicorn.Config(
+            app,
+            host=server.settings.host,
+            port=server.settings.port,
+            log_level=server.settings.log_level.lower(),
+        )
+        anyio.run(_run_uvicorn, config)
+        return
+    elif web:
+        click.echo("--web requires --transport sse; ignoring --web.", err=True)
     server.run(transport=transport)
+
+
+async def _run_uvicorn(config) -> None:
+    import uvicorn
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 @main.command()

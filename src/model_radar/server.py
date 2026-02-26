@@ -7,7 +7,11 @@ the fastest free coding LLM models across 17 providers.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import time
+from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
 
@@ -53,6 +57,16 @@ multiple models, and benchmark quality — all through MCP tools.
 - `setup_guide(provider?)` — Get signup instructions for unconfigured \
   providers. Returns URLs and steps you can relay to your user.
 - `configure_key(provider, api_key)` — Save an API key for a provider.
+- `setup_workflow(step, provider_selection?)` — Deterministic setup: step 1 \
+  Playwright check/install, step 2 list remaining providers, step 3 login \
+  instructions for selected providers + where to save keys, step 4 where to save.
+- `host_swap_instructions(model_id?, provider?, min_tier?)` — Where to search the \
+  machine (Cursor, Claude Code, Open Interpreter, OpenClaw) and what OpenAI \
+  base_url + model_id to set; includes WSL/Windows/Mac paths and model-radar key locations.
+- `restart_server()` — (SSE only, opt-in) Exit the server process so a process manager \
+  can restart it and load new tools. Requires MODEL_RADAR_ALLOW_RESTART=1.
+- `server_stats()` — When the server started (ISO timestamp) and uptime in seconds. \
+  Use to answer "how fast did model-radar come up" or "how long has it been running".
 
 ## Tier scale (SWE-bench Verified)
 S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > B (20-30%) > C (<20%)
@@ -64,6 +78,29 @@ S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > 
   user add more providers for better coverage and fallback.
 - The run() tool automatically retries on the next fastest model if one \
   fails. You do not need to implement retry logic yourself.
+
+## Instructions for host agents
+- **SSE and Cursor:** The server must be started in a separate terminal and already listening \
+  before Cursor connects. If Cursor tries to connect before the server is up, it will timeout \
+  ("fetch failed", "Connect Timeout"). Tell the user: start `model-radar serve --transport sse --port 8765` \
+  (or with --web), wait for "Uvicorn running on...", then open Cursor or add the MCP server URL. \
+  That way server startup is separate from MCP connection and all tools are immediately active.
+- **Web dashboard:** The user can get a localhost UI (status, config, discovery, run) \
+  by running model-radar with SSE and --web. Command: \
+  `model-radar serve --transport sse --port 8765 --web`. Dashboard URL: \
+  http://127.0.0.1:8765/ . The server binds to 127.0.0.1 only; keys and data never leave the machine.
+- **Restarting the server:** If the user wants to "bring up the website", "restart the server", or \
+  "reload" and the server is already running under a restart loop (e.g. MODEL_RADAR_ALLOW_RESTART=1 \
+  with a loop that restarts on exit), call `restart_server()`. Do not start a second server on \
+  another port. If no server is running, tell the user to run the command above in a terminal (with \
+  --web if they want the dashboard).
+- **Starting the server:** If the user wants the server or dashboard and nothing is running, \
+  instruct them to run in a terminal: `model-radar serve --transport sse --port 8765 --web` (or \
+  without --web for MCP only). For automatic restarts after code changes: \
+  `MODEL_RADAR_ALLOW_RESTART=1` and a wrapper like `while true; do model-radar serve --transport sse --port 8765 --web; sleep 1; done`.
+- **Privacy:** Do not log, echo, or send API keys off-host. list_providers and API responses \
+  show only "configured" or "missing"; never the actual key. Keys are stored only in \
+  ~/.model-radar/config.json (0o600).
 """
 
 mcp = FastMCP("model-radar", instructions=MCP_INSTRUCTIONS)
@@ -415,6 +452,138 @@ async def setup_guide(provider: str | None = None) -> str:
     return json.dumps(result, indent=2)
 
 
+@mcp.tool()
+async def setup_workflow(
+    step: int,
+    provider_selection: list[str] | None = None,
+) -> str:
+    """Deterministic setup workflow: guide the host to get API keys installed.
+
+    Run steps in order. Step 1: check/install Playwright (optional). Step 2:
+    get list of remaining (unconfigured) providers — then prompt the user to
+    choose which to set up. Step 3: pass that selection as provider_selection
+    to get login instructions and where to save each key. Step 4: summary of
+    where keys are stored (config path, configure_key tool, env vars).
+
+    Many providers support GitHub SSO; the response marks them so the host can
+    tell the user they may only need to click \"Sign in with GitHub\" and allow.
+
+    Args:
+        step: 1 (Playwright), 2 (remaining providers), 3 (login + save), 4 (where to save).
+        provider_selection: For step 3 only. List of provider keys (e.g. groq, openrouter)
+                            the user chose from step 2. If omitted at step 3, response
+                            tells you to prompt the user and call again with selection.
+    """
+    from .setup_workflow import get_workflow_step
+
+    result = get_workflow_step(step=step, provider_selection=provider_selection)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def host_swap_instructions(
+    model_id: str | None = None,
+    provider: str | None = None,
+    min_tier: str | None = "A",
+) -> str:
+    """Tell the host agent where to search the machine to swap in a model-radar model.
+
+    Returns: (1) Where model-radar stores API keys. (2) OpenAI-compatible base_url
+    and model_id for the given model (or a recommended min_tier model). (3) Per-app
+    search locations for Cursor, Claude Code, Open Interpreter, OpenClaw — with paths
+    for Linux, Mac, Windows, and WSL (e.g. ~/.cursor, /mnt/c/Users/<user>/.cursor).
+    The host can search these paths and set base_url + model_id + API key so the app
+    uses a free model from model-radar.
+
+    Args:
+        model_id: Specific model_id (e.g. llama-3.3-70b-versatile). Omit to get a
+                  recommended model at min_tier.
+        provider: Limit to this provider when choosing a recommended model.
+        min_tier: When model_id is omitted, recommend a model at this tier or better (default A).
+    """
+    from .host_swap import get_host_swap_instructions
+
+    result = get_host_swap_instructions(
+        model_id=model_id, provider=provider, min_tier=min_tier,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def restart_server() -> str:
+    """Request the server to exit so a process manager can restart it (SSE only, opt-in).
+
+    When running model-radar with SSE (e.g. model-radar serve --transport sse), a
+    process manager or wrapper can restart the server on exit. This tool exits the
+    process with code 0 so the manager starts a fresh process (and loads any updated
+    code/tools). The client must reconnect after the restart.
+
+    Requires MODEL_RADAR_ALLOW_RESTART=1. If not set, returns instructions instead
+    of exiting (so agents cannot restart the server by default).
+    """
+    if os.environ.get("MODEL_RADAR_ALLOW_RESTART") != "1":
+        return json.dumps({
+            "ok": False,
+            "message": "Restart is disabled. To enable: set MODEL_RADAR_ALLOW_RESTART=1 "
+                       "and run the server under a process manager that restarts on exit "
+                       "(e.g. a loop or systemd). Then call restart_server() again.",
+            "hint": "Example: MODEL_RADAR_ALLOW_RESTART=1 model-radar serve --transport sse --port 8765",
+        }, indent=2)
+
+    # Schedule exit on next tick so the tool response can be sent
+    def _exit():
+        os._exit(0)
+
+    asyncio.get_running_loop().call_later(0, _exit)
+    return json.dumps({
+        "ok": True,
+        "message": "Server will exit now. Reconnect after your process manager restarts it.",
+    }, indent=2)
+
+
+# Set when create_server() is called (once per process) so server_stats can report startup/uptime
+_server_start_time: float | None = None
+
+
+@mcp.tool()
+async def server_stats() -> str:
+    """Return when this server process started and how long it has been running.
+
+    Use to answer questions like 'how fast did model-radar come up' or 'how long has
+    the server been running'. started_at is set when the server process began (create_server
+    was called); uptime_seconds is seconds since then.
+    """
+    global _server_start_time
+    if _server_start_time is None:
+        _server_start_time = time.time()
+    now = time.time()
+    uptime = now - _server_start_time
+    started_at = datetime.fromtimestamp(_server_start_time, tz=timezone.utc)
+    return json.dumps({
+        "started_at": started_at.isoformat(),
+        "started_at_epoch": _server_start_time,
+        "uptime_seconds": round(uptime, 2),
+        "uptime_human": f"{int(uptime)}s",
+    }, indent=2)
+
+
 def create_server() -> FastMCP:
     """Return the MCP server instance."""
+    global _server_start_time
+    if _server_start_time is None:
+        _server_start_time = time.time()
     return mcp
+
+
+def make_sse_and_streamable_http_app(mount_path: str | None = "/") -> "Starlette":
+    """Return a Starlette app that serves both SSE (/sse, /messages/) and Streamable HTTP (/mcp).
+
+    Cursor tries Streamable HTTP first, then falls back to SSE. Serving both on the same
+    port avoids connection failures when Cursor connects. Uses the streamable app as
+    base (so its lifespan runs) and adds SSE routes to it.
+    """
+    streamable_app = mcp.streamable_http_app()
+    sse_app = mcp.sse_app(mount_path=mount_path)
+    sse_routes = [r for r in sse_app.routes if getattr(r, "path", None) in ("/sse", "/messages")]
+    streamable_app.router.routes.extend(sse_routes)
+    return streamable_app

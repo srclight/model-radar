@@ -39,16 +39,42 @@ Or copy the template: `cp config.example.json ~/.model-radar/config.json` and ed
 ```
 
 **Cursor** (`.cursor/mcp.json` in project root or `~/.cursor/mcp.json`):
+
+Stdio (default — Cursor starts the server):
 ```json
 {
   "mcpServers": {
     "model-radar": {
-      "command": "model-radar",
+      "command": "/path/to/your/.venv/bin/model-radar",
       "args": ["serve"]
     }
   }
 }
 ```
+
+SSE (you run the server; Cursor connects by URL):
+
+The server listens on one port and serves **both** Streamable HTTP (`/mcp`) and SSE (`/sse`, `/messages/`). Cursor tries Streamable HTTP first, then SSE, so it can connect as soon as the server is up.
+
+```sh
+# Terminal: start the server (leave it running)
+model-radar serve --transport sse --port 8765
+```
+Then in Cursor MCP config use the URL `http://127.0.0.1:8765` (or `http://127.0.0.1:8765/mcp` / `http://127.0.0.1:8765/sse` as your client expects). Start the server before opening the project so Cursor finds it immediately.
+
+**Web dashboard:** With `--web`, the same server serves a localhost UI at `http://127.0.0.1:8765/` for status, config, discovery, and running prompts (REST API at `/api/*`). MCP remains at `/sse`. **Privacy:** The server binds to 127.0.0.1 only; your API keys and data never leave your machine. Keys are stored only in `~/.model-radar/config.json` (0o600).
+```sh
+model-radar serve --transport sse --port 8765 --web
+```
+
+**Restarting the SSE server:** After updating model-radar, restart the server so new tools appear. You can either restart the process manually, or run with a restart wrapper and use the `restart_server()` MCP tool:
+
+```sh
+# Allow the MCP tool to request exit; a loop restarts the server
+export MODEL_RADAR_ALLOW_RESTART=1
+while true; do model-radar serve --transport sse --port 8765; sleep 1; done
+```
+Then call the `restart_server()` tool (e.g. from an agent); the process exits, the loop starts a new one with updated code, and you reconnect.
 
 **OpenClaw** (`~/.openclaw/openclaw.json`):
 ```json
