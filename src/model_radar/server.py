@@ -50,8 +50,8 @@ multiple models, and benchmark quality — all through MCP tools.
 ## Tool guide — Discovery
 - list_providers() — See all 17 providers and which have API keys. Call first when unsure.
 - list_models(tier?, provider?, min_tier?, free_only?) — Browse catalog without pinging. \
-  min_tier="A" means A or better (A, A+, S, S+). free_only=true returns only models marked free. \
-  Response includes is_free: true/false when known (missing = unknown).
+  model_id = code name to use when inserting/configuring (API, Cursor, run()); label = display only. \
+  min_tier="A" means A or better. free_only=true for free only. Response includes is_free when known.
 - scan(...) — Ping models in parallel, get ranked by latency. Use when you need live speed data.
 - get_fastest(min_tier?, provider?, count?, free_only?) — Best N models right now. \
   Example: get_fastest(free_only=True, min_tier="A", count=5) for "5 free A-or-better models".
@@ -78,6 +78,7 @@ Better → worse: S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%
 min_tier="A" means "A or better" (includes A+, S, S+).
 
 ## Notes for agents
+- model_id is the model code name — use it when inserting or configuring (API calls, Cursor, run(prompt, model_id=\"...\"), host_swap_instructions). label is display-only.
 - is_free in responses: true = free, false = paid, field missing = unknown. Use free_only=true to filter to free only.
 - quality_score: prefer 4/5 or 5/5; avoid below 3/5 when shown.
 - If only one provider is configured, suggest setup_guide() for more coverage.
@@ -149,6 +150,8 @@ async def list_models(
 ) -> str:
     """List models in the catalog without pinging. Use when the user asks what models are available or to browse by tier/provider/free.
 
+    Response includes model_id (the code name to use when inserting/configuring, e.g. run(prompt, model_id=...) or Cursor settings) and label (display only).
+
     Args:
         tier: Filter to exact tier (S+, S, A+, A, A-, B+, B, C)
         provider: Filter to provider key (nvidia, groq, cerebras, etc.)
@@ -175,6 +178,7 @@ async def list_models(
     return json.dumps({
         "count": len(rows),
         "filters": {"tier": tier, "provider": provider, "min_tier": min_tier, "free_only": free_only},
+        "model_id_usage": "Use model_id as the model code name when configuring clients or API calls (e.g. run(prompt, model_id=..., provider=...)). label is for display only.",
         "models": rows,
     }, indent=2)
 
@@ -210,6 +214,7 @@ async def scan(
     return json.dumps({
         "scanned": len(results),
         "up": up_count,
+        "model_id_usage": "Use model_id as the model code name when configuring clients or API calls (e.g. run(prompt, model_id=..., provider=...)). label is for display only.",
         "results": rows,
     }, indent=2)
 
@@ -223,7 +228,7 @@ async def get_fastest(
 ) -> str:
     """Get the N fastest available models right now. Use when the user wants recommendations or \"best/fastest/free\" models.
 
-    Pings configured providers and returns top N by latency. Example: get_fastest(free_only=True, min_tier=\"A\", count=5) for \"5 free A-or-better models\".
+    Pings configured providers and returns top N by latency. Use model_id from results as the code name when inserting or configuring (e.g. run(prompt, model_id=..., provider=...)). Example: get_fastest(free_only=True, min_tier=\"A\", count=5) for \"5 free A-or-better models\".
 
     Args:
         min_tier: Minimum quality tier (default "A" — shows S+, S, A+, A)
@@ -249,6 +254,7 @@ async def get_fastest(
     return json.dumps({
         "count": len(rows),
         "fastest": rows[0] if rows else None,
+        "model_id_usage": "Use model_id as the model code name when configuring clients or API calls (e.g. run(prompt, model_id=..., provider=...)). label is for display only.",
         "results": rows,
     }, indent=2)
 

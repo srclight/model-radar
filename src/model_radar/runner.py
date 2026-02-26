@@ -74,6 +74,7 @@ async def _call_model(
         }
 
     data = resp.json()
+    usage = data.get("usage", {})
 
     # Extract the response text
     content = ""
@@ -82,15 +83,44 @@ async def _call_model(
         output = data.get("output", [])
         content = "".join(output) if isinstance(output, list) else str(output)
     else:
-        # OpenAI-compatible format
+        # OpenAI-compatible format (content can be str, null, or list of parts)
         choices = data.get("choices", [])
         if choices:
-            msg = choices[0].get("message", {})
-            content = msg.get("content", "")
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            msg = choice.get("message", {}) or {}
+            raw = msg.get("content")
+            if raw is None:
+                content = ""
+            elif isinstance(raw, list):
+                # Multimodal: [{"type": "text", "text": "..."}, ...]
+                content = "".join(
+                    p.get("text", "") for p in raw if isinstance(p, dict) and p.get("type") == "text"
+                )
+            else:
+                content = str(raw) if raw else ""
+            # Some providers put text in choice.text, message.text, or reasoning when content is null
+            if not content and usage.get("completion_tokens"):
+                content = (
+                    choice.get("text")
+                    or msg.get("text")
+                    or msg.get("reasoning")
+                    or msg.get("reasoning_content")
+                    or ""
+                )
+                if content and not isinstance(content, str):
+                    content = str(content)
+            if not content and isinstance(msg.get("content"), list):
+                # Unstructured list of parts: just concat any string we find
+                for part in msg.get("content") or []:
+                    if isinstance(part, dict) and part.get("text"):
+                        content += part.get("text", "")
+                    elif isinstance(part, str):
+                        content += part
 
-    usage = data.get("usage", {})
+    # Expose full raw API response body for debugging
+    raw_response = data if resp.status_code in (200, 201) else None
 
-    return {
+    out = {
         "content": content,
         "model_id": model.model_id,
         "model_label": model.label,
@@ -104,6 +134,9 @@ async def _call_model(
             "total_tokens": usage.get("total_tokens"),
         },
     }
+    if raw_response is not None:
+        out["raw_response"] = raw_response
+    return out
 
 
 def _find_model(model_id: str, provider: str | None = None) -> Model | None:
