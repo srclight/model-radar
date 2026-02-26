@@ -89,6 +89,42 @@ def scan(provider: str | None, tier: str | None, min_tier: str | None, free_only
 
 
 @main.command()
+@click.option("--prompt", "-P", default="What time is it right now? Reply briefly with the current date and time.", help="Prompt to send")
+@click.option("--min-tier", "-m", default="S", help="Minimum tier (default: S)")
+@click.option("--count", "-n", type=int, default=10, help="Number of models to ask (default: 10)")
+@click.option("--raw", is_flag=True, help="Print raw JSON output (for debugging)")
+def ask(prompt: str, min_tier: str, count: int, raw: bool):
+    """Ask the same prompt to the top N models (min tier); print raw JSON if --raw."""
+    import asyncio
+    import json
+
+    from .consensus import ask_models
+
+    async def _run():
+        return await ask_models(prompt=prompt, min_tier=min_tier, count=count, max_tokens=80)
+
+    result = asyncio.run(_run())
+    if raw:
+        click.echo(json.dumps(result, indent=2, default=str))
+    else:
+        # Chart: Model | Provider | Raw answer (unparsed from API)
+        rows = result.get("responses", [])
+        click.echo(f"\n  {'Model':<30} {'Provider':<10} Raw answer (unparsed)")
+        click.echo("  " + "-" * 100)
+        for r in rows:
+            label = (r.get("model_label") or "?")[:28]
+            prov = (r.get("provider") or "?")[:8]
+            raw_response = r.get("raw_response")
+            if raw_response is not None:
+                raw_str = json.dumps(raw_response, ensure_ascii=False, default=str).replace("\n", " ")
+                if len(raw_str) > 800:
+                    raw_str = raw_str[:797] + "..."
+            else:
+                raw_str = "(no raw response)"
+            click.echo(f"  {label:<30} {prov:<10} {raw_str}")
+        click.echo("")
+
+@main.command()
 def providers():
     """List all providers and their configuration status."""
     from .config import get_api_key, is_provider_enabled, load_config

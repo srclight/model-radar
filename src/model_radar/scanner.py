@@ -109,6 +109,21 @@ async def _ping_one(
         elapsed_ms = (time.monotonic() - start) * 1000
 
         if resp.status_code in (200, 201):
+            # Hello check: for OpenAI-style APIs, ensure we got a real completion (not 200 + error in body)
+            if model.provider != "replicate":
+                try:
+                    data = resp.json()
+                    choices = data.get("choices") if isinstance(data, dict) else None
+                    if not choices or not isinstance(choices, list):
+                        return PingResult(model=model, status="error", latency_ms=elapsed_ms,
+                                          error_detail="no_choices")
+                    first = choices[0] if choices else None
+                    if not isinstance(first, dict) or "message" not in first:
+                        return PingResult(model=model, status="error", latency_ms=elapsed_ms,
+                                          error_detail="no_message")
+                except Exception:
+                    return PingResult(model=model, status="error", latency_ms=elapsed_ms,
+                                      error_detail="invalid_response")
             return PingResult(model=model, status="up", latency_ms=elapsed_ms)
         elif resp.status_code in (401, 403):
             if api_key:
