@@ -18,3 +18,10 @@ CLAUDE.md
 
 # Local Vault mirror / private analysis (sync to Dropbox/Vault if desired)
 vault/
+
+# Plans and strategic docs — keep in Vault (Areas/Model Radar/), not in public repo
+FREE_MODELS_ANALYSIS.md
+IMPLEMENTATION_SUMMARY.md
+LIVE_MODELS.md
+PLAN.md
+SQLITE_FEATURE.md
