@@ -16,6 +16,9 @@ from model_radar.db import (
     get_recent_ping,
     get_stats,
     get_provider_stats,
+    replace_provider_models,
+    ensure_db_populated,
+    get_models_for_discovery,
     DB_PATH,
 )
 from model_radar.providers import PROVIDERS
@@ -320,5 +323,57 @@ class TestGetProviderStats:
             assert pstats['total_models'] > 0
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class TestReplaceProviderModels:
+    def test_replace_provider_models(self, synced_db):
+        """Test replacing a provider's models with a new list."""
+        rows = [
+            ("new-model-1", "New Model 1", "A", "45%", "128k"),
+            ("new-model-2", "New Model 2", "B", "25%", "32k"),
+        ]
+        n = replace_provider_models("groq", rows, db_path=synced_db)
+        assert n == 2
+        groq_models = filter_models(db_path=synced_db, provider="groq")
+        assert len(groq_models) == 2
+        ids = {m.model_id for m in groq_models}
+        assert ids == {"new-model-1", "new-model-2"}
+
+    def test_replace_clears_old(self, synced_db):
+        """Test that replace removes previous models for that provider."""
+        before = len(filter_models(db_path=synced_db, provider="groq"))
+        assert before > 0
+        replace_provider_models("groq", [("only-one", "Only", "C", "", "")], db_path=synced_db)
+        after = filter_models(db_path=synced_db, provider="groq")
+        assert len(after) == 1
+        assert after[0].model_id == "only-one"
+
+
+class TestEnsureDbPopulated:
+    def test_already_populated(self, synced_db):
+        """Test ensure_db_populated when DB already has models."""
+        assert ensure_db_populated(synced_db) is True
+        stats = get_stats(synced_db)
+        assert stats["active_models"] > 0
+
+    def test_populates_when_empty(self, temp_db):
+        """Test ensure_db_populated syncs from hardcoded when empty."""
+        init_schema(temp_db)
+        # Empty DB
+        assert get_stats(temp_db)["active_models"] == 0
+        ensure_db_populated(temp_db)
+        assert get_stats(temp_db)["active_models"] > 0
+
+
+class TestGetModelsForDiscovery:
+    def test_returns_models(self, synced_db):
+        """Test get_models_for_discovery returns filtered models from DB."""
+        models = get_models_for_discovery(db_path=synced_db, provider="groq")
+        assert len(models) >= 1
+        for m in models:
+            assert m.provider == "groq"
+
+    def test_populates_then_returns(self, temp_db):
+        """Test get_models_for_discovery populates empty DB then returns."""
+        init_schema(temp_db)
+        models = get_models_for_discovery(db_path=temp_db, min_tier="S")
+        assert len(models) >= 0  # may be 0 if no S tier in hardcoded
+        assert get_stats(temp_db)["active_models"] > 0

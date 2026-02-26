@@ -203,6 +203,44 @@ async def fetch_all_provider_models(
     return results
 
 
+def _provider_models_to_db_rows(models: list[ProviderModel]) -> list[tuple[str, str, str, str, str]]:
+    """Map ProviderModel list to (model_id, label, tier, swe_score, context_window) for DB."""
+    return [
+        (
+            m.model_id,
+            (m.label or m.model_id),
+            "C",  # unknown tier for live models
+            "",
+            str(m.context_length) if m.context_length else "",
+        )
+        for m in models
+    ]
+
+
+async def refresh_models_from_live(
+    provider: str | None = None,
+) -> dict[str, int]:
+    """
+    Fetch latest model lists from configured providers (openrouter, nvidia, groq)
+    and replace those providers' models in the database. Discards previous models
+    for each such provider. Only providers with API keys are fetched.
+
+    Returns:
+        Dict mapping provider_key to number of models written to DB.
+    """
+    from .db import replace_provider_models
+
+    results = await fetch_all_provider_models(provider=provider)
+    counts = {}
+    for provider_key, models in results.items():
+        if not models:
+            continue
+        rows = _provider_models_to_db_rows(models)
+        n = replace_provider_models(provider_key, rows)
+        counts[provider_key] = n
+    return counts
+
+
 def compare_models(
     hardcoded_models: list[ProviderModel],
     live_models: list[ProviderModel],

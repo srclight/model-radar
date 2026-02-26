@@ -22,7 +22,8 @@ from .config import (
     load_config,
     save_config,
 )
-from .providers import ALL_TIERS, PROVIDERS, TIER_ORDER, get_all_models, filter_models
+from .db import get_models_for_discovery
+from .providers import ALL_TIERS, PROVIDERS, TIER_ORDER, get_all_models
 from .scanner import ScanState, format_result, scan_models
 
 MCP_INSTRUCTIONS = """\
@@ -52,6 +53,10 @@ multiple models, and benchmark quality — all through MCP tools.
   on N models in parallel and compare responses for verification.
 
 ## Tool guide — Quality & Setup
+- `refresh_models(provider?, run_ping?, ping_limit?)` — Fetch latest model lists \
+  from configured providers (openrouter, nvidia, groq) and replace them in the \
+  database. Optionally run a quick ping test after. Use before scan/get_fastest \
+  to ensure the catalog is up to date.
 - `benchmark(model_id?, count?)` — Quality-test models with 5 coding \
   challenges. Results are saved and shown in future scan/get_fastest calls.
 - `setup_guide(provider?)` — Get signup instructions for unconfigured \
@@ -156,7 +161,7 @@ async def list_models(
         provider: Filter to provider key (nvidia, groq, cerebras, etc.)
         min_tier: Show this tier and above (e.g. "A" shows S+, S, A+, A)
     """
-    models = filter_models(tier=tier, provider=provider, min_tier=min_tier)
+    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier)
     # Sort by tier quality
     models.sort(key=lambda m: (TIER_ORDER.get(m.tier, 99), m.label))
     rows = []
@@ -312,6 +317,48 @@ async def configure_key(provider: str, api_key: str) -> str:
         "message": f"API key saved for {PROVIDERS[provider].name}. "
                    f"Config: ~/.model-radar/config.json",
     }, indent=2)
+
+
+@mcp.tool()
+async def refresh_models(
+    provider: str | None = None,
+    run_ping: bool = False,
+    ping_limit: int = 20,
+) -> str:
+    """Fetch latest model lists from configured providers (openrouter, nvidia, groq) and replace them in the database.
+
+    Only providers with API keys are fetched; their previous model list is discarded and replaced with the live API list. Other providers keep their existing list. Use this to get the current catalog, then call scan() or get_fastest() for discovery. Optionally run a quick ping test after refresh.
+
+    Args:
+        provider: Optional provider to refresh only (openrouter, nvidia, groq)
+        run_ping: If true, run a ping test on up to ping_limit models after refreshing
+        ping_limit: Max models to ping when run_ping is true (default 20)
+    """
+    from .provider_sync import refresh_models_from_live
+
+    counts = await refresh_models_from_live(provider=provider)
+    if not counts:
+        return json.dumps({
+            "refreshed": 0,
+            "message": "No providers with API keys returned models (openrouter, nvidia, groq).",
+            "ping_run": False,
+        }, indent=2)
+
+    total = sum(counts.values())
+    result = {
+        "refreshed": total,
+        "by_provider": counts,
+        "ping_run": False,
+    }
+    if run_ping and total > 0:
+        from .ping_test import ping_all_models
+        ping_provider = list(counts.keys())[0] if provider is None and len(counts) == 1 else provider
+        results = await ping_all_models(provider=ping_provider, limit=ping_limit, concurrency=5)
+        up = sum(1 for r in results if r.status == "success")
+        result["ping_run"] = True
+        result["ping_tested"] = len(results)
+        result["ping_up"] = up
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()

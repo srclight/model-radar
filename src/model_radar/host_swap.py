@@ -7,8 +7,9 @@ endpoint + model id). Includes Cursor, Claude Code, Open Interpreter, OpenClaw.
 from __future__ import annotations
 
 from .config import CONFIG_PATH, load_config
+from .db import get_models_for_discovery
 from .endpoints import get_openai_endpoint_for_model
-from .providers import get_all_models, filter_models, TIER_ORDER
+from .providers import TIER_ORDER
 
 # Where model-radar stores API keys (so host can tell user or read for swap)
 MODEL_RADAR_KEY_LOCATIONS = {
@@ -201,7 +202,7 @@ def get_host_swap_instructions(
     chosen_model = None
 
     if model_id:
-        for m in get_all_models():
+        for m in get_models_for_discovery():
             if m.model_id == model_id and (provider is None or m.provider == provider):
                 chosen_model = m
                 break
@@ -209,7 +210,7 @@ def get_host_swap_instructions(
             endpoint_info = get_openai_endpoint_for_model(chosen_model, cfg)
     else:
         # Pick a default: first min_tier or better (sorted by tier quality, then label)
-        models = filter_models(provider=provider, min_tier=min_tier or "A")
+        models = get_models_for_discovery(provider=provider, min_tier=min_tier or "A")
         if models and (min_tier or "A") in TIER_ORDER:
             models.sort(key=lambda m: (TIER_ORDER.get(m.tier, 99), m.label))
             chosen_model = models[0]

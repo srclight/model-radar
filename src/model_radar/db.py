@@ -321,3 +321,67 @@ def get_provider_stats(db_path: Path | None = None) -> dict[str, dict]:
             }
             for row in cursor.fetchall()
         }
+
+
+def replace_provider_models(
+    provider_key: str,
+    models: list[tuple[str, str, str, str, str]],
+    db_path: Path | None = None,
+) -> int:
+    """
+    Replace all models for a provider with the given list.
+    Each tuple: (model_id, label, tier, swe_score, context_window).
+
+    Returns the number of models inserted.
+    """
+    init_schema(db_path)
+
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM models WHERE provider_key = ?", (provider_key,))
+        count = 0
+        for model_id, label, tier, swe_score, context in models:
+            cursor.execute("""
+                INSERT INTO models (provider_key, model_id, label, tier, swe_score, context_window)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (provider_key, model_id, label, tier, swe_score, context))
+            count += 1
+        conn.commit()
+        return count
+
+
+def ensure_db_populated(db_path: Path | None = None) -> bool:
+    """
+    Ensure the database has a model list. If it has zero active models,
+    sync from hardcoded providers. Call this before using DB as source for discovery.
+
+    Returns True if DB now has models (was already populated or just synced).
+    """
+    init_schema(db_path)
+    stats = get_stats(db_path)
+    if stats["active_models"] > 0:
+        return True
+    sync_models(db_path)
+    return True
+
+
+def get_models_for_discovery(
+    db_path: Path | None = None,
+    tier: str | None = None,
+    provider: str | None = None,
+    min_tier: str | None = None,
+    active_only: bool = True,
+) -> list[Model]:
+    """
+    Get model list for discovery/scan. Uses the database when populated
+    (ensures DB is populated from hardcoded sync if empty). Use this
+    instead of providers.filter_models for scan, list_models, get_fastest.
+    """
+    ensure_db_populated(db_path)
+    return filter_models(
+        db_path=db_path,
+        tier=tier,
+        provider=provider,
+        min_tier=min_tier,
+        active_only=active_only,
+    )
