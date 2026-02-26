@@ -28,9 +28,9 @@ def serve(transport: str, port: int):
 
     server = create_server()
     if transport == "sse":
-        server.run(transport="sse", port=port)
-    else:
-        server.run(transport="stdio")
+        server.settings.host = "127.0.0.1"
+        server.settings.port = port
+    server.run(transport=transport)
 
 
 @main.command()
