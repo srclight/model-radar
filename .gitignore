@@ -12,3 +12,6 @@ config.json
 
 # CLAUDE.md is private — keep canonical copy in private notes only
 CLAUDE.md
+
+# Local private notes mirror / private analysis (sync to a private folder if desired)
+vault/
