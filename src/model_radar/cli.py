@@ -65,8 +65,9 @@ async def _run_uvicorn(config) -> None:
 @click.option("--provider", "-p", default=None, help="Filter by provider key")
 @click.option("--tier", "-t", default=None, help="Filter by exact tier (S+, S, A, etc.)")
 @click.option("--min-tier", "-m", default="A", help="Minimum tier (default: A)")
+@click.option("--free", "free_only", is_flag=True, help="Only scan models marked as free")
 @click.option("--limit", "-n", type=int, default=10, help="Max results")
-def scan(provider: str | None, tier: str | None, min_tier: str | None, limit: int):
+def scan(provider: str | None, tier: str | None, min_tier: str | None, free_only: bool, limit: int):
     """Scan models and show results (CLI mode)."""
     import asyncio
     import json
@@ -75,13 +76,14 @@ def scan(provider: str | None, tier: str | None, min_tier: str | None, limit: in
 
     async def _run():
         results = await scan_models(
-            tier=tier, provider=provider, min_tier=min_tier, limit=limit,
+            tier=tier, provider=provider, min_tier=min_tier, free_only=free_only, limit=limit,
         )
         for r in results:
             d = format_result(r)
             status = d["status"]
             lat = f"{d['latency_ms']}ms" if d["latency_ms"] else "---"
-            click.echo(f"  {status:<12} {lat:>8}  [{d['tier']:>3}] {d['label']:<25} {d['provider']}")
+            free_tag = " free" if d.get("is_free") else ""
+            click.echo(f"  {status:<12} {lat:>8}  [{d['tier']:>3}] {d['label']:<25} {d['provider']}{free_tag}")
 
     asyncio.run(_run())
 

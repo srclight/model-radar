@@ -140,6 +140,7 @@ async def scan_models(
     provider: str | None = None,
     min_tier: str | None = None,
     configured_only: bool = False,
+    free_only: bool = False,
     limit: int = 0,
     state: ScanState | None = None,
 ) -> list[PingResult]:
@@ -151,11 +152,12 @@ async def scan_models(
         provider: Filter to specific provider key
         min_tier: Filter to this tier or better (e.g. "A" includes S+, S, A+, A)
         configured_only: Only ping models whose provider has an API key
+        free_only: Only include models marked as free (from API or heuristic)
         limit: Max results to return (0 = all)
         state: Optional ScanState for rolling averages
     """
     cfg = load_config()
-    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier)
+    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier, free_only=free_only)
 
     if configured_only:
         configured = set(get_configured_providers(cfg))
@@ -215,6 +217,8 @@ def format_result(r: PingResult, state: ScanState | None = None) -> dict:
     }
     if r.error_detail:
         out["error"] = r.error_detail
+    if getattr(r.model, "is_free", None) is not None:
+        out["is_free"] = r.model.is_free
     if state:
         avg = state.avg_latency(key)
         if avg is not None:

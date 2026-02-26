@@ -34,55 +34,54 @@ real-time latency. Run prompts on the fastest model, verify answers across \
 multiple models, and benchmark quality — all through MCP tools.
 
 ## Quick start
-1. Call `list_providers()` to see which providers have API keys configured
-2. Call `get_fastest()` for a quick recommendation of the best model right now
-3. Call `run(prompt)` to execute a prompt on the fastest available model
+1. Call list_providers() to see which providers have API keys configured.
+2. Call get_fastest() for a quick recommendation of the best model right now.
+3. Call run(prompt) to execute a prompt on the fastest available model.
+
+## How to answer common user requests
+- "What models are available?" → list_models() or list_models(min_tier="A")
+- "Give me 5 fast free models" or "free and fast" → get_fastest(free_only=True, min_tier="A", count=5)
+- "Only free models" / "list free models" → list_models(free_only=True) or get_fastest(free_only=True, count=10)
+- "Run this on a free model" → run(prompt, free_only=True)
+- "Best model for coding" / "fastest model" → get_fastest(min_tier="A", count=5)
+- "Compare answers from several models" → ask(prompt, count=3)
+- "Refresh the model list from the internet" → refresh_models()
 
 ## Tool guide — Discovery
-- `list_providers()` — See all 17 providers and which have API keys
-- `list_models(tier?, provider?)` — Browse the model catalog (no pinging)
-- `scan(tier?, provider?, min_tier?, configured_only?, limit?)` — \
-  Ping models in parallel, get ranked results with live latency
-- `get_fastest(min_tier?, provider?, count?)` — Quick: best N models right now
-- `provider_status()` — Per-provider health check
+- list_providers() — See all 17 providers and which have API keys. Call first when unsure.
+- list_models(tier?, provider?, min_tier?, free_only?) — Browse catalog without pinging. \
+  min_tier="A" means A or better (A, A+, S, S+). free_only=true returns only models marked free. \
+  Response includes is_free: true/false when known (missing = unknown).
+- scan(...) — Ping models in parallel, get ranked by latency. Use when you need live speed data.
+- get_fastest(min_tier?, provider?, count?, free_only?) — Best N models right now. \
+  Example: get_fastest(free_only=True, min_tier="A", count=5) for "5 free A-or-better models".
+- provider_status() — Per-provider health check.
 
 ## Tool guide — Execution
-- `run(prompt, ...)` — Run a prompt on the fastest model with automatic \
-  fallback. If a model fails, retries on the next fastest automatically.
-- `ask(prompt, count=3, ...)` — Multi-model consensus. Run the same prompt \
-  on N models in parallel and compare responses for verification.
+- run(prompt, free_only?, model_id?, provider?, min_tier?, ...) — Run a prompt on the fastest model. \
+  Use free_only=true when the user wants a free model. Retries on next fastest if one fails.
+- ask(prompt, count=3, ...) — Run the same prompt on N models in parallel; compare responses.
 
 ## Tool guide — Quality & Setup
-- `refresh_models(provider?, run_ping?, ping_limit?)` — Fetch latest model lists \
-  from configured providers (openrouter, nvidia, groq) and replace them in the \
-  database. Optionally run a quick ping test after. Use before scan/get_fastest \
-  to ensure the catalog is up to date.
-- `benchmark(model_id?, count?)` — Quality-test models with 5 coding \
-  challenges. Results are saved and shown in future scan/get_fastest calls.
-- `setup_guide(provider?)` — Get signup instructions for unconfigured \
-  providers. Returns URLs and steps you can relay to your user.
-- `configure_key(provider, api_key)` — Save an API key for a provider.
-- `setup_workflow(step, provider_selection?)` — Deterministic setup: step 1 \
-  Playwright check/install, step 2 list remaining providers, step 3 login \
-  instructions for selected providers + where to save keys, step 4 where to save.
-- `host_swap_instructions(model_id?, provider?, min_tier?)` — Where to search the \
-  machine (Cursor, Claude Code, Open Interpreter, OpenClaw) and what OpenAI \
-  base_url + model_id to set; includes WSL/Windows/Mac paths and model-radar key locations.
-- `restart_server()` — (SSE only, opt-in) Exit the server process so a process manager \
-  can restart it and load new tools. Requires MODEL_RADAR_ALLOW_RESTART=1.
-- `server_stats()` — When the server started (ISO timestamp) and uptime in seconds. \
-  Use to answer "how fast did model-radar come up" or "how long has it been running".
+- refresh_models(provider?, run_ping?, ping_limit?) — Fetch latest model lists from APIs; \
+  use periodically so free/paid and model list stay current.
+- benchmark(...) — Quality-test models; results show in later scan/get_fastest.
+- setup_guide(provider?) — Signup instructions for unconfigured providers.
+- configure_key(provider, api_key) — Save an API key.
+- setup_workflow(step, provider_selection?) — Step-by-step setup (Playwright, providers, keys).
+- host_swap_instructions(model_id?, provider?, min_tier?) — Where to set base_url + model_id on the host.
+- restart_server() — (SSE only) Exit so process manager can restart. Allowed by default; set MODEL_RADAR_ALLOW_RESTART=0 to disable.
+- server_stats() — Server start time and uptime.
 
 ## Tier scale (SWE-bench Verified)
-S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > B (20-30%) > C (<20%)
+Better → worse: S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > B (20-30%) > C (<20%). \
+min_tier="A" means "A or better" (includes A+, S, S+).
 
 ## Notes for agents
-- Models with a quality_score field have been benchmarked. Prefer models \
-  scoring 4/5 or 5/5. Avoid models scoring below 3/5.
-- If only 1 provider is configured, call setup_guide() and suggest your \
-  user add more providers for better coverage and fallback.
-- The run() tool automatically retries on the next fastest model if one \
-  fails. You do not need to implement retry logic yourself.
+- is_free in responses: true = free, false = paid, field missing = unknown. Use free_only=true to filter to free only.
+- quality_score: prefer 4/5 or 5/5; avoid below 3/5 when shown.
+- If only one provider is configured, suggest setup_guide() for more coverage.
+- run() retries on failure automatically; no need to implement retry yourself.
 
 ## Instructions for host agents
 - **SSE and Cursor:** The server must be started in a separate terminal and already listening \
@@ -94,15 +93,8 @@ S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > 
   by running model-radar with SSE and --web. Command: \
   `model-radar serve --transport sse --port 8765 --web`. Dashboard URL: \
   http://127.0.0.1:8765/ . The server binds to 127.0.0.1 only; keys and data never leave the machine.
-- **Restarting the server:** If the user wants to "bring up the website", "restart the server", or \
-  "reload" and the server is already running under a restart loop (e.g. MODEL_RADAR_ALLOW_RESTART=1 \
-  with a loop that restarts on exit), call `restart_server()`. Do not start a second server on \
-  another port. If no server is running, tell the user to run the command above in a terminal (with \
-  --web if they want the dashboard).
-- **Starting the server:** If the user wants the server or dashboard and nothing is running, \
-  instruct them to run in a terminal: `model-radar serve --transport sse --port 8765 --web` (or \
-  without --web for MCP only). For automatic restarts after code changes: \
-  `MODEL_RADAR_ALLOW_RESTART=1` and a wrapper like `while true; do model-radar serve --transport sse --port 8765 --web; sleep 1; done`.
+- **Restarting the server:** If the user wants to restart or reload, call `restart_server()`. The server will exit with code 0; if run under a loop (e.g. `while true; do model-radar serve ...; sleep 1; done`) it will come back with fresh code. Do not start a second server on another port.
+- **Starting the server:** If nothing is running, instruct: `model-radar serve --transport sse --port 8765 --web` (or without --web). For auto-restart on code changes: `while true; do model-radar serve --transport sse --port 8765 --web; sleep 1; done`.
 - **Privacy:** Do not log, echo, or send API keys off-host. list_providers and API responses \
   show only "configured" or "missing"; never the actual key. Keys are stored only in \
   ~/.model-radar/config.json (0o600).
@@ -153,20 +145,22 @@ async def list_models(
     tier: str | None = None,
     provider: str | None = None,
     min_tier: str | None = None,
+    free_only: bool = False,
 ) -> str:
-    """Browse the model catalog without pinging. Instant response.
+    """List models in the catalog without pinging. Use when the user asks what models are available or to browse by tier/provider/free.
 
     Args:
         tier: Filter to exact tier (S+, S, A+, A, A-, B+, B, C)
         provider: Filter to provider key (nvidia, groq, cerebras, etc.)
-        min_tier: Show this tier and above (e.g. "A" shows S+, S, A+, A)
+        min_tier: Show this tier and above (e.g. "A" = A, A+, S, S+)
+        free_only: If true, only list models marked as free (from API or :free/-free in id)
     """
-    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier)
+    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier, free_only=free_only)
     # Sort by tier quality
     models.sort(key=lambda m: (TIER_ORDER.get(m.tier, 99), m.label))
     rows = []
     for m in models:
-        rows.append({
+        row = {
             "model_id": m.model_id,
             "label": m.label,
             "provider": PROVIDERS[m.provider].name,
@@ -174,10 +168,13 @@ async def list_models(
             "tier": m.tier,
             "swe_score": m.swe_score,
             "context": m.context,
-        })
+        }
+        if m.is_free is not None:
+            row["is_free"] = m.is_free
+        rows.append(row)
     return json.dumps({
         "count": len(rows),
-        "filters": {"tier": tier, "provider": provider, "min_tier": min_tier},
+        "filters": {"tier": tier, "provider": provider, "min_tier": min_tier, "free_only": free_only},
         "models": rows,
     }, indent=2)
 
@@ -188,24 +185,24 @@ async def scan(
     provider: str | None = None,
     min_tier: str | None = None,
     configured_only: bool = False,
+    free_only: bool = False,
     limit: int = 20,
 ) -> str:
-    """Ping models in parallel and return ranked results with live latency.
+    """Ping models in parallel and return ranked results by latency. Use when you need live speed data or a ranked list.
 
-    This is the main tool — pings all matching models simultaneously and
-    returns them sorted by latency (fastest first). Takes 2-10 seconds
-    depending on how many models match the filters.
+    Pings all matching models, returns sorted fastest-first. Takes 2-10 seconds depending on filters.
 
     Args:
         tier: Filter to exact tier (S+, S, A+, A, A-, B+, B, C)
         provider: Filter to provider key (nvidia, groq, cerebras, etc.)
         min_tier: Show this tier and above (e.g. "S" shows only S+ and S)
         configured_only: Only ping models whose provider has an API key
+        free_only: Only include models marked as free (from API or :free/-free in id)
         limit: Max results (default 20, 0 = all)
     """
     results = await scan_models(
         tier=tier, provider=provider, min_tier=min_tier,
-        configured_only=configured_only, limit=limit, state=_state,
+        configured_only=configured_only, free_only=free_only, limit=limit, state=_state,
     )
     rows = [format_result(r, _state) for r in results]
 
@@ -222,21 +219,21 @@ async def get_fastest(
     min_tier: str | None = "A",
     provider: str | None = None,
     count: int = 5,
+    free_only: bool = False,
 ) -> str:
-    """Get the N fastest available models right now.
+    """Get the N fastest available models right now. Use when the user wants recommendations or \"best/fastest/free\" models.
 
-    Quick recommendation tool — pings only configured providers by default
-    and returns the top results. Use this when you just want the best
-    model to use right now.
+    Pings configured providers and returns top N by latency. Example: get_fastest(free_only=True, min_tier=\"A\", count=5) for \"5 free A-or-better models\".
 
     Args:
         min_tier: Minimum quality tier (default "A" — shows S+, S, A+, A)
         provider: Limit to specific provider
         count: How many results (default 5)
+        free_only: If true, only return models marked as free
     """
     results = await scan_models(
         min_tier=min_tier, provider=provider,
-        configured_only=True, limit=count, state=_state,
+        configured_only=True, free_only=free_only, limit=count, state=_state,
     )
     # Only return models that are actually up
     up_results = [r for r in results if r.status == "up"]
@@ -368,14 +365,15 @@ async def run(
     model_id: str | None = None,
     provider: str | None = None,
     min_tier: str = "A",
+    free_only: bool = False,
     max_tokens: int = 4096,
     temperature: float = 0.0,
 ) -> str:
-    """Run a prompt on the fastest available free model and return the response.
+    """Run a prompt on the fastest available model and return the response.
 
-    Picks the fastest responding model automatically, or use a specific one.
-    This turns model-radar from discovery into execution — one tool call to
-    get work done on a free coding model.
+    Use when the user wants to execute a prompt. Picks the fastest responding
+    model automatically (with optional fallback). Set free_only=True when the
+    user asks for a free model only.
 
     Args:
         prompt: The user message to send
@@ -383,6 +381,7 @@ async def run(
         model_id: Specific model to use (skips scanning). Use list_models() to browse.
         provider: Limit to a specific provider (nvidia, groq, etc.)
         min_tier: Minimum quality tier when auto-selecting (default "A")
+        free_only: If true, only consider models marked as free (default false)
         max_tokens: Max response tokens (default 4096)
         temperature: Sampling temperature (default 0.0 for deterministic)
     """
@@ -394,6 +393,7 @@ async def run(
         model_id=model_id,
         provider=provider,
         min_tier=min_tier,
+        free_only=free_only,
         max_tokens=max_tokens,
         temperature=temperature,
         state=_state,
@@ -558,23 +558,20 @@ async def host_swap_instructions(
 
 @mcp.tool()
 async def restart_server() -> str:
-    """Request the server to exit so a process manager can restart it (SSE only, opt-in).
+    """Request the server to exit so a process manager can restart it (SSE only).
 
-    When running model-radar with SSE (e.g. model-radar serve --transport sse), a
-    process manager or wrapper can restart the server on exit. This tool exits the
-    process with code 0 so the manager starts a fresh process (and loads any updated
-    code/tools). The client must reconnect after the restart.
-
-    Requires MODEL_RADAR_ALLOW_RESTART=1. If not set, returns instructions instead
-    of exiting (so agents cannot restart the server by default).
+    When running model-radar with SSE, a process manager or wrapper can restart
+    the server on exit. This tool exits the process with code 0 so the manager
+    starts a fresh process (and loads any updated code/tools). The client must
+    reconnect after the restart. Restart is allowed by default; set
+    MODEL_RADAR_ALLOW_RESTART=0 to disable.
     """
-    if os.environ.get("MODEL_RADAR_ALLOW_RESTART") != "1":
+    allow = os.environ.get("MODEL_RADAR_ALLOW_RESTART", "1").strip().lower()
+    if allow in ("0", "false", "no"):
         return json.dumps({
             "ok": False,
-            "message": "Restart is disabled. To enable: set MODEL_RADAR_ALLOW_RESTART=1 "
-                       "and run the server under a process manager that restarts on exit "
-                       "(e.g. a loop or systemd). Then call restart_server() again.",
-            "hint": "Example: MODEL_RADAR_ALLOW_RESTART=1 model-radar serve --transport sse --port 8765",
+            "message": "Restart is disabled (MODEL_RADAR_ALLOW_RESTART=0). Remove it or set to 1 to allow.",
+            "hint": "Example: model-radar serve --transport sse --port 8765 --web",
         }, indent=2)
 
     # Schedule exit on next tick so the tool response can be sent

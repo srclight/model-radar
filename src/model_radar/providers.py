@@ -30,6 +30,7 @@ class Model:
     swe_score: str
     context: str
     provider: str
+    is_free: bool | None = None  # True=free, False=paid, None=unknown (from API or heuristic)
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +280,20 @@ _p("perplexity", "Perplexity", "https://api.perplexity.ai/chat/completions",
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _model_id_suggests_free(model_id: str) -> bool | None:
+    """Return True if model_id suggests free tier, False if paid, None if unknown."""
+    if not model_id:
+        return None
+    lower = model_id.lower()
+    if ":free" in lower or "-free" in lower or lower.endswith("free"):
+        return True
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Tier ordering for sorting/filtering
 # ---------------------------------------------------------------------------
 
@@ -292,9 +307,11 @@ def get_all_models() -> list[Model]:
     models = []
     for pkey, prov in PROVIDERS.items():
         for model_id, label, tier, swe, ctx in prov.models:
+            is_free = _model_id_suggests_free(model_id)
             models.append(Model(
                 model_id=model_id, label=label, tier=tier,
                 swe_score=swe, context=ctx, provider=pkey,
+                is_free=is_free,
             ))
     return models
 

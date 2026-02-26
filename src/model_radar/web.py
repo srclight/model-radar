@@ -115,7 +115,7 @@ def _dashboard_html() -> str:
     <h2>Server</h2>
     <div class="flex">
       <button type="button" id="btnServerStats">Server stats (started at, uptime)</button>
-      <button type="button" id="btnRestart" class="secondary">Request restart (SSE only, requires MODEL_RADAR_ALLOW_RESTART=1)</button>
+      <button type="button" id="btnRestart" class="secondary">Request restart (SSE only; set MODEL_RADAR_ALLOW_RESTART=0 to disable)</button>
     </div>
     <div id="serverStatsOutput" style="margin-top: 0.5rem; color: var(--muted); font-size: 0.9rem;"></div>
     <div id="restartOutput" style="margin-top: 0.5rem;"></div>
