@@ -13,5 +13,8 @@ config.json
 # CLAUDE.md is private — keep canonical copy in Vault only
 CLAUDE.md
 
+# Cursor rules are private — golden copy in Vault, symlink in repo
+.cursor/rules
+
 # Local Vault mirror / private analysis (sync to Dropbox/Vault if desired)
 vault/
