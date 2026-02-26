@@ -122,7 +122,7 @@ def _dashboard_html() -> str:
   </section>
 
   <script>
-    const api = (path, opts = {}) => fetch(path, { headers: { Accept: 'application/json', ...opts.headers }, ...opts }).then(r => r.json());
+    const api = (path, opts = {}) => fetch(path, { headers: { Accept: 'application/json', ...opts.headers }, ...opts }).then(async r => { const data = await r.json(); if (!r.ok && data && data.error) throw new Error(data.error); if (!r.ok) throw new Error(r.statusText || 'Request failed'); return data; });
     const set = (id, text, isError) => { const el = document.getElementById(id); el.textContent = text; el.className = isError ? 'error' : ''; };
     const setHtml = (id, html) => { document.getElementById(id).innerHTML = html; };
 
@@ -210,7 +210,7 @@ def _dashboard_html() -> str:
     document.getElementById('btnRestart').onclick = async () => {
       set('restartOutput', 'Calling restart…');
       try {
-        const data = await api('/api/restart_server');
+        const data = await api('/api/restart_server', { method: 'POST' });
         set('restartOutput', JSON.stringify(data, null, 2));
       } catch (e) { set('restartOutput', e.message, true); }
     };
