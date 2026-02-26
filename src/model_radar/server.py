@@ -42,6 +42,8 @@ Perplexity) and ranks them by real-time latency.
 - `get_fastest(min_tier?, provider?, count?)` — Quick: best N models right now
 - `provider_status()` — Detailed provider health check
 - `configure_key(provider, api_key)` — Set an API key for a provider
+- `run(prompt, system_prompt?, model_id?, provider?, min_tier?, max_tokens?)` — \
+  Run a prompt on the fastest available model (or a specific one)
 
 ## Tier scale (SWE-bench Verified)
 S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > B (20-30%) > C (<20%)
@@ -256,6 +258,46 @@ async def configure_key(provider: str, api_key: str) -> str:
         "message": f"API key saved for {PROVIDERS[provider].name}. "
                    f"Config: ~/.model-radar/config.json",
     }, indent=2)
+
+
+@mcp.tool()
+async def run(
+    prompt: str,
+    system_prompt: str | None = None,
+    model_id: str | None = None,
+    provider: str | None = None,
+    min_tier: str = "A",
+    max_tokens: int = 4096,
+    temperature: float = 0.0,
+) -> str:
+    """Run a prompt on the fastest available free model and return the response.
+
+    Picks the fastest responding model automatically, or use a specific one.
+    This turns model-radar from discovery into execution — one tool call to
+    get work done on a free coding model.
+
+    Args:
+        prompt: The user message to send
+        system_prompt: Optional system prompt (e.g. "You are a Python expert")
+        model_id: Specific model to use (skips scanning). Use list_models() to browse.
+        provider: Limit to a specific provider (nvidia, groq, etc.)
+        min_tier: Minimum quality tier when auto-selecting (default "A")
+        max_tokens: Max response tokens (default 4096)
+        temperature: Sampling temperature (default 0.0 for deterministic)
+    """
+    from .runner import run_on_fastest
+
+    result = await run_on_fastest(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        model_id=model_id,
+        provider=provider,
+        min_tier=min_tier,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
 
 
 def create_server() -> FastMCP:
