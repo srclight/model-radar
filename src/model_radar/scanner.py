@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 import httpx
 
 from .config import get_api_key, get_configured_providers, is_provider_enabled, load_config
-from .providers import PROVIDERS, TIER_ORDER, Model, filter_models
+from .db import get_models_for_discovery
+from .providers import PROVIDERS, TIER_ORDER, Model
 from .quality import get_model_quality
 
 # Minimal payload — triggers a fast response from chat/completions endpoints
@@ -154,7 +155,7 @@ async def scan_models(
         state: Optional ScanState for rolling averages
     """
     cfg = load_config()
-    models = filter_models(tier=tier, provider=provider, min_tier=min_tier)
+    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier)
 
     if configured_only:
         configured = set(get_configured_providers(cfg))
