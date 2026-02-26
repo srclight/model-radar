@@ -18,3 +18,10 @@ CLAUDE.md
 
 # Local private notes mirror / private analysis (sync to a private folder if desired)
 vault/
+
+# Plans and strategic docs — keep in private notes , not in public repo
+FREE_MODELS_ANALYSIS.md
+IMPLEMENTATION_SUMMARY.md
+LIVE_MODELS.md
+PLAN.md
+SQLITE_FEATURE.md
