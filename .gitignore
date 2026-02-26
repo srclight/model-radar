@@ -9,3 +9,6 @@ build/
 
 # API keys — never commit the real config
 config.json
+
+# CLAUDE.md is private — keep canonical copy in Vault only
+CLAUDE.md
