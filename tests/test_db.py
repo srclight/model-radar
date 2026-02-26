@@ -163,6 +163,14 @@ class TestFilterModels:
         for model in models:
             assert model.tier in ["S+", "S"]
 
+    def test_filter_free_only(self, synced_db):
+        """Test filter by free_only (is_free=1)."""
+        all_models = filter_models(synced_db, provider="groq")
+        free_models = filter_models(synced_db, provider="groq", free_only=True)
+        assert len(free_models) <= len(all_models)
+        for m in free_models:
+            assert m.is_free is True
+
     def test_filter_combined(self, synced_db):
         """Test filtering by both provider and tier."""
         models = filter_models(synced_db, provider="nvidia", tier="S+")
@@ -327,8 +335,8 @@ class TestReplaceProviderModels:
     def test_replace_provider_models(self, synced_db):
         """Test replacing a provider's models with a new list."""
         rows = [
-            ("new-model-1", "New Model 1", "A", "45%", "128k"),
-            ("new-model-2", "New Model 2", "B", "25%", "32k"),
+            ("new-model-1", "New Model 1", "A", "45%", "128k", True),
+            ("new-model-2", "New Model 2", "B", "25%", "32k", None),
         ]
         n = replace_provider_models("groq", rows, db_path=synced_db)
         assert n == 2
@@ -341,7 +349,7 @@ class TestReplaceProviderModels:
         """Test that replace removes previous models for that provider."""
         before = len(filter_models(db_path=synced_db, provider="groq"))
         assert before > 0
-        replace_provider_models("groq", [("only-one", "Only", "C", "", "")], db_path=synced_db)
+        replace_provider_models("groq", [("only-one", "Only", "C", "", "", None)], db_path=synced_db)
         after = filter_models(db_path=synced_db, provider="groq")
         assert len(after) == 1
         assert after[0].model_id == "only-one"

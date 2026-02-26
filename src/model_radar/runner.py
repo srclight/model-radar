@@ -126,6 +126,7 @@ async def run_on_fastest(
     model_id: str | None = None,
     provider: str | None = None,
     min_tier: str = "A",
+    free_only: bool = False,
     max_tokens: int = 4096,
     temperature: float = 0.0,
     state: ScanState | None = None,
@@ -136,6 +137,7 @@ async def run_on_fastest(
 
     If model_id is provided, uses that model directly (no fallback).
     Otherwise, pings configured models and tries the fastest ones in order.
+    Set free_only=True to restrict to models marked as free (from API or :free/-free in id).
     On failure (429, timeout, error), automatically retries on the next
     fastest model up to max_retries times.
     """
@@ -160,7 +162,8 @@ async def run_on_fastest(
     # Scan and try models in order with fallback
     results = await scan_models(
         min_tier=min_tier, provider=provider,
-        configured_only=True, limit=max_retries + 2, state=state,
+        configured_only=True, free_only=free_only,
+        limit=max_retries + 2, state=state,
     )
     up_results = [r for r in results if r.status == "up"]
     if not up_results:

@@ -73,7 +73,25 @@ def init_schema(db_path: Path | None = None) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_models_active ON models(is_active)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ping_results_model ON ping_results(model_id, provider_key)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ping_results_time ON ping_results(recorded_at DESC)")
+        # Migration: add is_free if missing (1=free, 0=paid, NULL=unknown)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(models)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "is_free" not in columns:
+            conn.execute("ALTER TABLE models ADD COLUMN is_free INTEGER")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_models_is_free ON models(is_free)")
         conn.commit()
+
+
+def _is_free_from_model_id(model_id: str) -> int | None:
+    """Return 1 if model_id suggests free, 0 if we assume paid, None if unknown. For DB storage."""
+    from .providers import _model_id_suggests_free
+    v = _model_id_suggests_free(model_id)
+    if v is True:
+        return 1
+    if v is False:
+        return 0
+    return None
 
 
 def sync_models(db_path: Path | None = None) -> dict[str, int]:
@@ -92,17 +110,18 @@ def sync_models(db_path: Path | None = None) -> dict[str, int]:
             count = 0
             for model_tuple in provider.models:
                 model_id, label, tier, swe_score, context = model_tuple
-                
+                is_free = _is_free_from_model_id(model_id)
                 cursor.execute("""
-                    INSERT INTO models (provider_key, model_id, label, tier, swe_score, context_window, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    INSERT INTO models (provider_key, model_id, label, tier, swe_score, context_window, is_free, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(provider_key, model_id) DO UPDATE SET
                         label = excluded.label,
                         tier = excluded.tier,
                         swe_score = excluded.swe_score,
                         context_window = excluded.context_window,
+                        is_free = excluded.is_free,
                         updated_at = CURRENT_TIMESTAMP
-                """, (provider_key, model_id, label, tier, swe_score, context))
+                """, (provider_key, model_id, label, tier, swe_score, context, is_free))
                 count += 1
             
             stats[provider_key] = count
@@ -119,26 +138,28 @@ def get_all_models(db_path: Path | None = None, active_only: bool = True) -> lis
         cursor = conn.cursor()
         if active_only:
             cursor.execute("""
-                SELECT provider_key, model_id, label, tier, swe_score, context_window
+                SELECT provider_key, model_id, label, tier, swe_score, context_window, is_free
                 FROM models WHERE is_active = 1
             """)
         else:
             cursor.execute("""
-                SELECT provider_key, model_id, label, tier, swe_score, context_window
+                SELECT provider_key, model_id, label, tier, swe_score, context_window, is_free
                 FROM models
             """)
-        
-        return [
-            Model(
-                provider=row[0],
-                model_id=row[1],
-                label=row[2],
-                tier=row[3],
-                swe_score=row[4],
-                context=row[5],
-            )
-            for row in cursor.fetchall()
-        ]
+        rows = cursor.fetchall()
+    
+    return [
+        Model(
+            provider=row[0],
+            model_id=row[1],
+            label=row[2],
+            tier=row[3],
+            swe_score=row[4],
+            context=row[5],
+            is_free=bool(row[6]) if row[6] is not None else None,
+        )
+        for row in rows
+    ]
 
 
 def filter_models(
@@ -147,8 +168,9 @@ def filter_models(
     provider: str | None = None,
     min_tier: str | None = None,
     active_only: bool = True,
+    free_only: bool = False,
 ) -> list[Model]:
-    """Filter models by tier, provider, or min_tier."""
+    """Filter models by tier, provider, min_tier, and optionally free_only."""
     from .providers import TIER_ORDER
     
     init_schema(db_path)
@@ -156,11 +178,14 @@ def filter_models(
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         
-        query = "SELECT provider_key, model_id, label, tier, swe_score, context_window FROM models WHERE 1=1"
+        query = "SELECT provider_key, model_id, label, tier, swe_score, context_window, is_free FROM models WHERE 1=1"
         params = []
         
         if active_only:
             query += " AND is_active = 1"
+        
+        if free_only:
+            query += " AND is_free = 1"
         
         if provider:
             query += " AND provider_key = ?"
@@ -176,18 +201,20 @@ def filter_models(
             params.extend([t for t in TIER_ORDER if TIER_ORDER[t] <= min_ord])
         
         cursor.execute(query, params)
-        
-        return [
-            Model(
-                provider=row[0],
-                model_id=row[1],
-                label=row[2],
-                tier=row[3],
-                swe_score=row[4],
-                context=row[5],
-            )
-            for row in cursor.fetchall()
-        ]
+        rows = cursor.fetchall()
+    
+    return [
+        Model(
+            provider=row[0],
+            model_id=row[1],
+            label=row[2],
+            tier=row[3],
+            swe_score=row[4],
+            context=row[5],
+            is_free=bool(row[6]) if row[6] is not None else None,
+        )
+        for row in rows
+    ]
 
 
 def record_ping(
@@ -325,12 +352,12 @@ def get_provider_stats(db_path: Path | None = None) -> dict[str, dict]:
 
 def replace_provider_models(
     provider_key: str,
-    models: list[tuple[str, str, str, str, str]],
+    models: list[tuple[str, str, str, str, str, bool | None]],
     db_path: Path | None = None,
 ) -> int:
     """
     Replace all models for a provider with the given list.
-    Each tuple: (model_id, label, tier, swe_score, context_window).
+    Each tuple: (model_id, label, tier, swe_score, context_window, is_free).
 
     Returns the number of models inserted.
     """
@@ -340,11 +367,12 @@ def replace_provider_models(
         cursor = conn.cursor()
         cursor.execute("DELETE FROM models WHERE provider_key = ?", (provider_key,))
         count = 0
-        for model_id, label, tier, swe_score, context in models:
+        for model_id, label, tier, swe_score, context, is_free in models:
+            is_free_int = 1 if is_free is True else (0 if is_free is False else None)
             cursor.execute("""
-                INSERT INTO models (provider_key, model_id, label, tier, swe_score, context_window)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (provider_key, model_id, label, tier, swe_score, context))
+                INSERT INTO models (provider_key, model_id, label, tier, swe_score, context_window, is_free)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (provider_key, model_id, label, tier, swe_score, context, is_free_int))
             count += 1
         conn.commit()
         return count
@@ -371,6 +399,7 @@ def get_models_for_discovery(
     provider: str | None = None,
     min_tier: str | None = None,
     active_only: bool = True,
+    free_only: bool = False,
 ) -> list[Model]:
     """
     Get model list for discovery/scan. Uses the database when populated
@@ -384,4 +413,5 @@ def get_models_for_discovery(
         provider=provider,
         min_tier=min_tier,
         active_only=active_only,
+        free_only=free_only,
     )

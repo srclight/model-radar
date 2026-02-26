@@ -203,18 +203,47 @@ async def fetch_all_provider_models(
     return results
 
 
-def _provider_models_to_db_rows(models: list[ProviderModel]) -> list[tuple[str, str, str, str, str]]:
-    """Map ProviderModel list to (model_id, label, tier, swe_score, context_window) for DB."""
-    return [
-        (
+def _is_free_from_pricing(extra: dict | None) -> bool | None:
+    """Derive is_free from OpenRouter-style pricing (prompt/completion 0 = free). Returns None if unknown."""
+    if not extra or not isinstance(extra.get("pricing"), dict):
+        return None
+    pricing = extra["pricing"]
+    prompt = pricing.get("prompt")
+    completion = pricing.get("completion")
+    if prompt is None and completion is None:
+        return None
+    try:
+        p = float(prompt) if prompt is not None else 0
+        c = float(completion) if completion is not None else 0
+        return p == 0 and c == 0
+    except (TypeError, ValueError):
+        if isinstance(prompt, str) and "free" in prompt.lower():
+            return True
+        return None
+
+
+def _provider_models_to_db_rows(
+    models: list[ProviderModel],
+    provider_key: str,
+) -> list[tuple[str, str, str, str, str, bool | None]]:
+    """Map ProviderModel list to (model_id, label, tier, swe_score, context_window, is_free) for DB."""
+    rows = []
+    for m in models:
+        is_free = None
+        if provider_key == "openrouter":
+            is_free = _is_free_from_pricing(m.extra)
+        if is_free is None and (m.model_id or "").lower():
+            if ":free" in (m.model_id or "").lower() or "-free" in (m.model_id or "").lower():
+                is_free = True
+        rows.append((
             m.model_id,
             (m.label or m.model_id),
-            "C",  # unknown tier for live models
+            "C",
             "",
             str(m.context_length) if m.context_length else "",
-        )
-        for m in models
-    ]
+            is_free,
+        ))
+    return rows
 
 
 async def refresh_models_from_live(
@@ -235,7 +264,7 @@ async def refresh_models_from_live(
     for provider_key, models in results.items():
         if not models:
             continue
-        rows = _provider_models_to_db_rows(models)
+        rows = _provider_models_to_db_rows(models, provider_key)
         n = replace_provider_models(provider_key, rows)
         counts[provider_key] = n
     return counts
