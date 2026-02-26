@@ -17,6 +17,7 @@ import httpx
 
 from .config import get_api_key, get_configured_providers, is_provider_enabled, load_config
 from .providers import PROVIDERS, TIER_ORDER, Model, filter_models
+from .quality import get_model_quality
 
 # Minimal payload — triggers a fast response from chat/completions endpoints
 PING_PAYLOAD = {
@@ -220,4 +221,9 @@ def format_result(r: PingResult, state: ScanState | None = None) -> dict:
         uptime = state.uptime_pct(key)
         if uptime is not None:
             out["uptime_pct"] = round(uptime, 1)
+    # Include quality score if model has been benchmarked
+    quality = get_model_quality(r.model.model_id)
+    if quality:
+        out["quality_score"] = f"{quality['passed']}/{quality['total']}"
+        out["quality_pct"] = quality["pct"]
     return out

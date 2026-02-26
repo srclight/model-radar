@@ -22,31 +22,48 @@ from .providers import ALL_TIERS, PROVIDERS, TIER_ORDER, get_all_models, filter_
 from .scanner import ScanState, format_result, scan_models
 
 MCP_INSTRUCTIONS = """\
-model-radar: Free coding model discovery for AI agents.
+model-radar: Free coding model discovery and execution for AI agents.
 
-Pings 134+ free coding LLM models across 17 providers (NVIDIA NIM, Groq, \
-Cerebras, SambaNova, OpenRouter, Hugging Face, Replicate, DeepInfra, Fireworks, \
-Codestral, Hyperbolic, Scaleway, Google AI, SiliconFlow, Together AI, Cloudflare, \
-Perplexity) and ranks them by real-time latency.
+Pings 134+ free coding LLM models across 17 providers and ranks them by \
+real-time latency. Run prompts on the fastest model, verify answers across \
+multiple models, and benchmark quality — all through MCP tools.
 
 ## Quick start
-1. Call `list_providers()` to see which providers are configured
-2. Call `scan_models()` to ping all models and get ranked results
-3. Call `get_fastest()` for a quick recommendation
+1. Call `list_providers()` to see which providers have API keys configured
+2. Call `get_fastest()` for a quick recommendation of the best model right now
+3. Call `run(prompt)` to execute a prompt on the fastest available model
 
-## Tool guide
+## Tool guide — Discovery
 - `list_providers()` — See all 17 providers and which have API keys
 - `list_models(tier?, provider?)` — Browse the model catalog (no pinging)
-- `scan_models(tier?, provider?, min_tier?, configured_only?, limit?)` — \
+- `scan(tier?, provider?, min_tier?, configured_only?, limit?)` — \
   Ping models in parallel, get ranked results with live latency
 - `get_fastest(min_tier?, provider?, count?)` — Quick: best N models right now
-- `provider_status()` — Detailed provider health check
-- `configure_key(provider, api_key)` — Set an API key for a provider
-- `run(prompt, system_prompt?, model_id?, provider?, min_tier?, max_tokens?)` — \
-  Run a prompt on the fastest available model (or a specific one)
+- `provider_status()` — Per-provider health check
+
+## Tool guide — Execution
+- `run(prompt, ...)` — Run a prompt on the fastest model with automatic \
+  fallback. If a model fails, retries on the next fastest automatically.
+- `ask(prompt, count=3, ...)` — Multi-model consensus. Run the same prompt \
+  on N models in parallel and compare responses for verification.
+
+## Tool guide — Quality & Setup
+- `benchmark(model_id?, count?)` — Quality-test models with 5 coding \
+  challenges. Results are saved and shown in future scan/get_fastest calls.
+- `setup_guide(provider?)` — Get signup instructions for unconfigured \
+  providers. Returns URLs and steps you can relay to your user.
+- `configure_key(provider, api_key)` — Save an API key for a provider.
 
 ## Tier scale (SWE-bench Verified)
 S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > B (20-30%) > C (<20%)
+
+## Notes for agents
+- Models with a quality_score field have been benchmarked. Prefer models \
+  scoring 4/5 or 5/5. Avoid models scoring below 3/5.
+- If only 1 provider is configured, call setup_guide() and suggest your \
+  user add more providers for better coverage and fallback.
+- The run() tool automatically retries on the next fastest model if one \
+  fails. You do not need to implement retry logic yourself.
 """
 
 mcp = FastMCP("model-radar", instructions=MCP_INSTRUCTIONS)
@@ -297,6 +314,104 @@ async def run(
         temperature=temperature,
         state=_state,
     )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def benchmark(
+    model_id: str | None = None,
+    provider: str | None = None,
+    min_tier: str = "A",
+    count: int = 3,
+) -> str:
+    """Quality-test models with 5 coding challenges and return pass/fail scores.
+
+    Runs arithmetic, instruction following, code generation, code reasoning,
+    and JSON output challenges. Catches models that are fast but hallucinate,
+    ignore instructions, or produce garbled output.
+
+    Without model_id, scans for the fastest models and benchmarks the top N.
+
+    Args:
+        model_id: Specific model to benchmark (optional)
+        provider: Limit to a specific provider (nvidia, groq, etc.)
+        min_tier: Minimum quality tier when auto-selecting (default "A")
+        count: How many models to benchmark when auto-selecting (default 3)
+    """
+    from .benchmark import benchmark_models
+
+    scores = await benchmark_models(
+        model_id=model_id,
+        provider=provider,
+        min_tier=min_tier,
+        count=count,
+        state=_state,
+    )
+    return json.dumps({"benchmarks": scores}, indent=2)
+
+
+@mcp.tool()
+async def ask(
+    prompt: str,
+    system_prompt: str | None = None,
+    count: int = 3,
+    min_tier: str = "A",
+    provider: str | None = None,
+    max_tokens: int = 4096,
+    temperature: float = 0.0,
+) -> str:
+    """Run the same prompt on multiple models in parallel and return all responses.
+
+    Use this for verification and consensus. When accuracy matters more than
+    speed, ask N models the same question and compare their answers. If 3/3
+    models agree, you can be more confident in the result.
+
+    Returns all responses side-by-side with model info, latency, and quality
+    scores (if previously benchmarked).
+
+    Args:
+        prompt: The question or task to send to all models
+        system_prompt: Optional system prompt applied to all models
+        count: How many models to query in parallel (default 3)
+        min_tier: Minimum quality tier for model selection (default "A")
+        provider: Limit to a specific provider (nvidia, groq, etc.)
+        max_tokens: Max response tokens per model (default 4096)
+        temperature: Sampling temperature (default 0.0 for deterministic)
+    """
+    from .consensus import ask_models
+
+    result = await ask_models(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        count=count,
+        min_tier=min_tier,
+        provider=provider,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def setup_guide(provider: str | None = None) -> str:
+    """Get setup instructions for adding free model providers.
+
+    Without arguments, returns a prioritized list of all unconfigured
+    providers with signup URLs, free tier details, and setup steps.
+    With a provider argument, returns detailed instructions for that
+    specific provider.
+
+    Use this to help your user expand their model coverage. More providers
+    means better fallback options and more models to choose from.
+
+    Args:
+        provider: Specific provider key to get instructions for (optional).
+                  Omit to see all unconfigured providers.
+    """
+    from .guides import get_setup_guide
+
+    result = get_setup_guide(provider)
     return json.dumps(result, indent=2)
 
 

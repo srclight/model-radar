@@ -106,6 +106,20 @@ async def _call_model(
     }
 
 
+def _find_model(model_id: str, provider: str | None = None) -> Model | None:
+    """Look up a model in the registry by ID."""
+    for pkey, prov in PROVIDERS.items():
+        if provider and pkey != provider:
+            continue
+        for mid, label, tier, swe, ctx in prov.models:
+            if mid == model_id:
+                return Model(
+                    model_id=mid, label=label, tier=tier,
+                    swe_score=swe, context=ctx, provider=pkey,
+                )
+    return None
+
+
 async def run_on_fastest(
     prompt: str,
     system_prompt: str | None = None,
@@ -115,44 +129,17 @@ async def run_on_fastest(
     max_tokens: int = 4096,
     temperature: float = 0.0,
     state: ScanState | None = None,
+    max_retries: int = 3,
 ) -> dict:
     """
-    Run a prompt on the fastest available model.
+    Run a prompt on the fastest available model with automatic fallback.
 
-    If model_id is provided, uses that model directly (skips scanning).
-    Otherwise, pings configured models and picks the fastest one.
+    If model_id is provided, uses that model directly (no fallback).
+    Otherwise, pings configured models and tries the fastest ones in order.
+    On failure (429, timeout, error), automatically retries on the next
+    fastest model up to max_retries times.
     """
     cfg = load_config()
-
-    if model_id:
-        # Find the model in our registry
-        target = None
-        for pkey, prov in PROVIDERS.items():
-            if provider and pkey != provider:
-                continue
-            for mid, label, tier, swe, ctx in prov.models:
-                if mid == model_id:
-                    target = Model(
-                        model_id=mid, label=label, tier=tier,
-                        swe_score=swe, context=ctx, provider=pkey,
-                    )
-                    break
-            if target:
-                break
-        if not target:
-            return {"error": f"Model '{model_id}' not found in registry"}
-    else:
-        # Scan and pick the fastest UP model
-        results = await scan_models(
-            min_tier=min_tier, provider=provider,
-            configured_only=True, limit=5, state=state,
-        )
-        up_results = [r for r in results if r.status == "up"]
-        if not up_results:
-            return {
-                "error": "No models available. Check API keys with list_providers().",
-            }
-        target = up_results[0].model
 
     # Build messages
     messages = []
@@ -160,7 +147,47 @@ async def run_on_fastest(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    return await _call_model(
-        model=target, messages=messages, cfg=cfg,
-        max_tokens=max_tokens, temperature=temperature,
+    if model_id:
+        # Specific model — no fallback
+        target = _find_model(model_id, provider)
+        if not target:
+            return {"error": f"Model '{model_id}' not found in registry"}
+        return await _call_model(
+            model=target, messages=messages, cfg=cfg,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+
+    # Scan and try models in order with fallback
+    results = await scan_models(
+        min_tier=min_tier, provider=provider,
+        configured_only=True, limit=max_retries + 2, state=state,
     )
+    up_results = [r for r in results if r.status == "up"]
+    if not up_results:
+        return {
+            "error": "No models available. Check API keys with list_providers().",
+        }
+
+    retries = []
+    for i, ping_result in enumerate(up_results[:max_retries]):
+        result = await _call_model(
+            model=ping_result.model, messages=messages, cfg=cfg,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        if "error" not in result:
+            if retries:
+                result["retries"] = retries
+            return result
+        # Record the failure and try next model
+        retries.append({
+            "model_id": ping_result.model.model_id,
+            "model_label": ping_result.model.label,
+            "error": result["error"],
+        })
+
+    # All retries exhausted
+    return {
+        "error": f"All {len(retries)} models failed. Tried: "
+                 + ", ".join(r["model_label"] for r in retries),
+        "retries": retries,
+    }
