@@ -25,3 +25,12 @@ IMPLEMENTATION_SUMMARY.md
 LIVE_MODELS.md
 PLAN.md
 SQLITE_FEATURE.md
+
+# Output folder for generated assets
+output/
+
+# Srclight index (local dev tooling)
+.srclight/
+
+# VS Code workspace files
+*.code-workspace
