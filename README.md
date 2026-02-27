@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.srclight/model-radar -->
 # model-radar
 
 MCP server that pings 130+ free coding LLM models across 17 providers in real-time, ranks them by latency, and helps AI agents pick the fastest available model.
