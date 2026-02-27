@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "model-radar"
-version = "0.3.0"
+version = "0.4.0"
 description = "MCP server that pings free coding LLM models across 17 providers in real-time, ranks by latency, and helps AI agents pick the fastest available model."
 readme = "README.md"
 license = "MIT"
