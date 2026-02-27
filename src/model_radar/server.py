@@ -78,6 +78,7 @@ Better → worse: S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%
 min_tier="A" means "A or better" (includes A+, S, S+).
 
 ## Notes for agents
+- **Always give the user the model_id** when you list or recommend models (scan, get_fastest, ask results, etc.). Show both label and model_id (e.g. "Kimi K2 Instruct — moonshotai/kimi-k2-instruct") so the user can copy it for run(model_id=...), Cursor config, or host_swap_instructions.
 - model_id is the model code name — use it when inserting or configuring (API calls, Cursor, run(prompt, model_id=\"...\"), host_swap_instructions). label is display-only.
 - is_free in responses: true = free, false = paid, field missing = unknown. Use free_only=true to filter to free only.
 - quality_score: prefer 4/5 or 5/5; avoid below 3/5 when shown.
