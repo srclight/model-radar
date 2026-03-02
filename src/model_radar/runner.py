@@ -41,7 +41,10 @@ async def _call_model(
     if model.provider == "googleai":
         url = f"{url}?key={api_key}"
 
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
+    }
     if model.provider == "replicate":
         headers["Authorization"] = f"Token {api_key}"
     elif model.provider != "googleai":

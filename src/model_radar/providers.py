@@ -125,30 +125,35 @@ _p("groq", "Groq", "https://api.groq.com/openai/v1/chat/completions",
 # --- Cerebras ---
 _p("cerebras", "Cerebras", "https://api.cerebras.ai/v1/chat/completions",
    ("CEREBRAS_API_KEY",), (
-    ("llama3.3-70b", "Llama 3.3 70B", "A-", "39.5%", "128k"),
-    ("llama-4-scout-17b-16e-instruct", "Llama 4 Scout", "A", "44.0%", "10M"),
-    ("qwen-3-32b", "Qwen3 32B", "A+", "50.0%", "128k"),
+    ("qwen-3-235b-a22b-instruct-2507", "Qwen3 235B", "S+", "70.0%", "128k"),
+    ("zai-glm-4.7", "GLM 4.7", "S+", "73.8%", "200k"),
     ("gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
-    ("qwen-3-235b-a22b", "Qwen3 235B", "S+", "70.0%", "128k"),
     ("llama3.1-8b", "Llama 3.1 8B", "B", "28.8%", "128k"),
-    ("glm-4.6", "GLM 4.6", "A-", "38.0%", "128k"),
 ))
 
 # --- SambaNova ---
 _p("sambanova", "SambaNova", "https://api.sambanova.ai/v1/chat/completions",
    ("SAMBANOVA_API_KEY",), (
-    ("Qwen3-235B-A22B-Instruct-2507", "Qwen3 235B", "S+", "70.0%", "128k"),
-    ("DeepSeek-R1-0528", "DeepSeek R1 0528", "S", "61.0%", "128k"),
+    # S+ tier
+    ("DeepSeek-V3.2", "DeepSeek V3.2", "S+", "73.1%", "128k"),
+    ("Qwen3-235B", "Qwen3 235B", "S+", "70.0%", "128k"),
+    ("MiniMax-M2.5", "MiniMax M2.5", "S+", "74.0%", "200k"),
+    # S tier
+    ("DeepSeek-V3.1-Terminus", "DeepSeek V3.1 Term", "S", "68.4%", "128k"),
     ("DeepSeek-V3.1", "DeepSeek V3.1", "S", "62.0%", "128k"),
     ("DeepSeek-V3-0324", "DeepSeek V3 0324", "S", "62.0%", "128k"),
     ("Llama-4-Maverick-17B-128E-Instruct", "Llama 4 Maverick", "S", "62.0%", "1M"),
+    ("DeepSeek-R1-0528", "DeepSeek R1 0528", "S", "61.0%", "128k"),
     ("gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
-    ("deepseek-ai/DeepSeek-V3.1-Terminus", "DeepSeek V3.1 Term", "S", "68.4%", "128k"),
+    # A+ tier
     ("Qwen3-32B", "Qwen3 32B", "A+", "50.0%", "128k"),
+    # A tier
     ("DeepSeek-R1-Distill-Llama-70B", "R1 Distill 70B", "A", "43.9%", "128k"),
+    # A- tier
     ("Meta-Llama-3.3-70B-Instruct", "Llama 3.3 70B", "A-", "39.5%", "128k"),
+    ("Llama-3.3-Swallow-70B-Instruct-v0.4", "Llama Swallow 70B", "A-", "38.0%", "128k"),
+    # B tier
     ("Meta-Llama-3.1-8B-Instruct", "Llama 3.1 8B", "B", "28.8%", "128k"),
-    ("Llama-3-Groq-70B-Tool-Use", "Llama3-Groq 70B", "A", "43.0%", "128k"),
 ))
 
 # --- OpenRouter ---
@@ -169,8 +174,38 @@ _p("openrouter", "OpenRouter", "https://openrouter.ai/api/v1/chat/completions",
 # --- Hugging Face ---
 _p("huggingface", "Hugging Face", "https://router.huggingface.co/v1/chat/completions",
    ("HUGGINGFACE_API_KEY", "HF_TOKEN"), (
-    ("deepseek-ai/DeepSeek-V3-Coder", "DeepSeek V3 Coder", "S", "62.0%", "128k"),
-    ("bigcode/starcoder2-15b", "StarCoder2 15B", "B", "25.0%", "16k"),
+    # S+ tier
+    ("zai-org/GLM-5", "GLM 5", "S+", "77.8%", "200k"),
+    ("moonshotai/Kimi-K2.5", "Kimi K2.5", "S+", "76.8%", "128k"),
+    ("MiniMaxAI/MiniMax-M2.5", "MiniMax M2.5", "S+", "74.0%", "200k"),
+    ("MiniMaxAI/MiniMax-M2.1", "MiniMax M2.1", "S+", "74.0%", "200k"),
+    ("stepfun-ai/Step-3.5-Flash", "Step 3.5 Flash", "S+", "74.4%", "256k"),
+    ("Qwen/Qwen3-Coder-480B-A35B-Instruct", "Qwen3 Coder 480B", "S+", "70.6%", "256k"),
+    ("deepseek-ai/DeepSeek-V3.2", "DeepSeek V3.2", "S+", "73.1%", "128k"),
+    ("Qwen/Qwen3-235B-A22B-Instruct-2507", "Qwen3 235B", "S+", "70.0%", "128k"),
+    ("zai-org/GLM-4.7", "GLM 4.7", "S+", "73.8%", "200k"),
+    # S tier
+    ("deepseek-ai/DeepSeek-V3.1-Terminus", "DeepSeek V3.1 Term", "S", "68.4%", "128k"),
+    ("moonshotai/Kimi-K2-Instruct-0905", "Kimi K2 Instruct", "S", "65.8%", "131k"),
+    ("Qwen/Qwen3-Next-80B-A3B-Instruct", "Qwen3 80B Instruct", "S", "65.0%", "128k"),
+    ("deepseek-ai/DeepSeek-V3.1", "DeepSeek V3.1", "S", "62.0%", "128k"),
+    ("openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
+    ("deepseek-ai/DeepSeek-R1-0528", "DeepSeek R1 0528", "S", "61.0%", "128k"),
+    ("deepseek-ai/DeepSeek-R1", "DeepSeek R1", "S", "61.0%", "128k"),
+    ("MiniMaxAI/MiniMax-M2", "MiniMax M2", "S", "69.4%", "128k"),
+    # A+ tier
+    ("Qwen/QwQ-32B", "QwQ 32B", "A+", "50.0%", "131k"),
+    ("Qwen/Qwen3-32B", "Qwen3 32B", "A+", "50.0%", "128k"),
+    # A tier
+    ("meta-llama/Llama-4-Maverick-17B-128E-Instruct", "Llama 4 Maverick", "S", "62.0%", "1M"),
+    ("meta-llama/Llama-4-Scout-17B-16E-Instruct", "Llama 4 Scout", "A", "44.0%", "10M"),
+    ("openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
+    ("Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen2.5 Coder 32B", "A", "46.0%", "32k"),
+    ("deepseek-ai/DeepSeek-R1-Distill-Llama-70B", "R1 Distill 70B", "A", "43.9%", "128k"),
+    # A- tier
+    ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B", "A-", "39.5%", "128k"),
+    # B tier
+    ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1 8B", "B", "28.8%", "128k"),
 ))
 
 # --- Replicate ---
@@ -237,12 +272,37 @@ _p("googleai", "Google AI", "https://generativelanguage.googleapis.com/v1beta/op
 # --- SiliconFlow ---
 _p("siliconflow", "SiliconFlow", "https://api.siliconflow.com/v1/chat/completions",
    ("SILICONFLOW_API_KEY",), (
+    # S+ tier
+    ("zai-org/GLM-5", "GLM 5", "S+", "77.8%", "200k"),
+    ("MiniMaxAI/MiniMax-M2.5", "MiniMax M2.5", "S+", "74.0%", "200k"),
+    ("MiniMaxAI/MiniMax-M2.1", "MiniMax M2.1", "S+", "74.0%", "200k"),
+    ("moonshotai/Kimi-K2.5", "Kimi K2.5", "S+", "76.8%", "128k"),
+    ("stepfun-ai/Step-3.5-Flash", "Step 3.5 Flash", "S+", "74.4%", "256k"),
     ("Qwen/Qwen3-Coder-480B-A35B-Instruct", "Qwen3 Coder 480B", "S+", "70.6%", "256k"),
     ("deepseek-ai/DeepSeek-V3.2", "DeepSeek V3.2", "S+", "73.1%", "128k"),
-    ("Qwen/Qwen3-235B-A22B", "Qwen3 235B", "S+", "70.0%", "128k"),
+    ("Qwen/Qwen3-235B-A22B-Instruct-2507", "Qwen3 235B", "S+", "70.0%", "128k"),
+    ("zai-org/GLM-4.7", "GLM 4.7", "S+", "73.8%", "200k"),
+    # S tier
+    ("deepseek-ai/DeepSeek-V3.1", "DeepSeek V3.1", "S", "62.0%", "128k"),
+    ("deepseek-ai/DeepSeek-V3.1-Terminus", "DeepSeek V3.1 Term", "S", "68.4%", "128k"),
+    ("moonshotai/Kimi-K2-Instruct", "Kimi K2 Instruct", "S", "65.8%", "128k"),
     ("deepseek-ai/DeepSeek-R1", "DeepSeek R1", "S", "61.0%", "128k"),
+    ("openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
+    ("Qwen/Qwen3-Next-80B-A3B-Instruct", "Qwen3 80B Instruct", "S", "65.0%", "128k"),
+    # A+ tier
     ("Qwen/Qwen3-Coder-30B-A3B-Instruct", "Qwen3 Coder 30B", "A+", "55.0%", "32k"),
+    ("Qwen/QwQ-32B", "QwQ 32B", "A+", "50.0%", "131k"),
+    ("Qwen/Qwen3-32B", "Qwen3 32B", "A+", "50.0%", "128k"),
+    # A tier
+    ("openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
     ("Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen2.5 Coder 32B", "A", "46.0%", "32k"),
+    ("baidu/ERNIE-4.5-300B-A47B", "ERNIE 4.5 300B", "A", "42.0%", "128k"),
+    # A- tier
+    ("ByteDance-Seed/Seed-OSS-36B-Instruct", "Seed OSS 36B", "A-", "38.0%", "32k"),
+    ("tencent/Hunyuan-A13B-Instruct", "Hunyuan A13B", "A-", "36.0%", "32k"),
+    ("THUDM/GLM-4-32B-0414", "GLM 4 32B", "A-", "38.0%", "32k"),
+    # B tier
+    ("meta-llama/Meta-Llama-3.1-8B-Instruct", "Llama 3.1 8B", "B", "28.8%", "128k"),
 ))
 
 # --- Together AI ---
