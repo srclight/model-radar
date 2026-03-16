@@ -18,7 +18,7 @@ def test_server_created(server):
 
 def test_server_has_instructions(server):
     assert "model-radar" in server.instructions
-    assert "17 providers" in server.instructions
+    assert "21 providers" in server.instructions
 
 
 @pytest.mark.asyncio
@@ -27,9 +27,9 @@ async def test_list_providers_tool():
     from model_radar.server import list_providers
 
     result = json.loads(await list_providers())
-    assert result["total_providers"] == 17
+    assert result["total_providers"] == 21
     assert result["total_models"] >= 130
-    assert len(result["providers"]) == 17
+    assert len(result["providers"]) == 21
 
     # Check each provider has required fields
     for p in result["providers"]:

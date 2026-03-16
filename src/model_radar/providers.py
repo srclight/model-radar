@@ -110,24 +110,19 @@ _p("nvidia", "NIM", "https://integrate.api.nvidia.com/v1/chat/completions",
 # --- Groq ---
 _p("groq", "Groq", "https://api.groq.com/openai/v1/chat/completions",
    ("GROQ_API_KEY",), (
-    ("llama-3.3-70b-versatile", "Llama 3.3 70B", "A-", "39.5%", "128k"),
-    ("meta-llama/llama-4-scout-17b-16e-preview", "Llama 4 Scout", "A", "44.0%", "10M"),
-    ("meta-llama/llama-4-maverick-17b-128e-preview", "Llama 4 Maverick", "S", "62.0%", "1M"),
-    ("deepseek-r1-distill-llama-70b", "R1 Distill 70B", "A", "43.9%", "128k"),
-    ("qwen-qwq-32b", "QwQ 32B", "A+", "50.0%", "131k"),
     ("moonshotai/kimi-k2-instruct", "Kimi K2 Instruct", "S", "65.8%", "131k"),
-    ("llama-3.1-8b-instant", "Llama 3.1 8B", "B", "28.8%", "128k"),
     ("openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
-    ("openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
     ("qwen/qwen3-32b", "Qwen3 32B", "A+", "50.0%", "131k"),
+    ("openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
+    ("meta-llama/llama-4-scout-17b-16e-instruct", "Llama 4 Scout", "A", "44.0%", "10M"),
+    ("llama-3.3-70b-versatile", "Llama 3.3 70B", "A-", "39.5%", "128k"),
+    ("llama-3.1-8b-instant", "Llama 3.1 8B", "B", "28.8%", "128k"),
 ))
 
 # --- Cerebras ---
 _p("cerebras", "Cerebras", "https://api.cerebras.ai/v1/chat/completions",
    ("CEREBRAS_API_KEY",), (
     ("qwen-3-235b-a22b-instruct-2507", "Qwen3 235B", "S+", "70.0%", "128k"),
-    ("zai-glm-4.7", "GLM 4.7", "S+", "73.8%", "200k"),
-    ("gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
     ("llama3.1-8b", "Llama 3.1 8B", "B", "28.8%", "128k"),
 ))
 
@@ -135,9 +130,9 @@ _p("cerebras", "Cerebras", "https://api.cerebras.ai/v1/chat/completions",
 _p("sambanova", "SambaNova", "https://api.sambanova.ai/v1/chat/completions",
    ("SAMBANOVA_API_KEY",), (
     # S+ tier
+    ("MiniMax-M2.5", "MiniMax M2.5", "S+", "74.0%", "200k"),
     ("DeepSeek-V3.2", "DeepSeek V3.2", "S+", "73.1%", "128k"),
     ("Qwen3-235B", "Qwen3 235B", "S+", "70.0%", "128k"),
-    ("MiniMax-M2.5", "MiniMax M2.5", "S+", "74.0%", "200k"),
     # S tier
     ("DeepSeek-V3.1-Terminus", "DeepSeek V3.1 Term", "S", "68.4%", "128k"),
     ("DeepSeek-V3.1", "DeepSeek V3.1", "S", "62.0%", "128k"),
@@ -159,16 +154,24 @@ _p("sambanova", "SambaNova", "https://api.sambanova.ai/v1/chat/completions",
 # --- OpenRouter ---
 _p("openrouter", "OpenRouter", "https://openrouter.ai/api/v1/chat/completions",
    ("OPENROUTER_API_KEY",), (
-    ("qwen/qwen3-coder:480b-free", "Qwen3 Coder 480B", "S+", "70.6%", "256k"),
-    ("mistralai/devstral-2-free", "Devstral 2", "S+", "72.2%", "256k"),
-    ("mimo-v2-flash-free", "Mimo V2 Flash", "A", "45.0%", "128k"),
+    # S+ tier (free)
+    ("qwen/qwen3-coder:free", "Qwen3 Coder 480B", "S+", "70.6%", "256k"),
     ("stepfun/step-3.5-flash:free", "Step 3.5 Flash", "S+", "74.4%", "256k"),
-    ("deepseek/deepseek-r1-0528:free", "DeepSeek R1 0528", "S", "61.0%", "128k"),
+    ("minimax/minimax-m2.5:free", "MiniMax M2.5", "S+", "74.0%", "200k"),
+    # S tier (free)
+    ("nvidia/nemotron-3-super-120b-a12b:free", "Nemotron Super 120B", "S", "60.0%", "128k"),
     ("qwen/qwen3-next-80b-a3b-instruct:free", "Qwen3 80B Instruct", "S", "65.0%", "128k"),
     ("openai/gpt-oss-120b:free", "GPT OSS 120B", "S", "60.0%", "128k"),
-    ("openai/gpt-oss-20b:free", "GPT OSS 20B", "A", "42.0%", "128k"),
+    # A+ tier (free)
     ("nvidia/nemotron-3-nano-30b-a3b:free", "Nemotron Nano 30B", "A", "43.0%", "128k"),
+    ("mistralai/mistral-small-3.1-24b-instruct:free", "Mistral Small 3.1", "B+", "30.0%", "128k"),
+    # A tier (free)
+    ("openai/gpt-oss-20b:free", "GPT OSS 20B", "A", "42.0%", "128k"),
+    # A- tier (free)
     ("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B", "A-", "39.5%", "128k"),
+    # B tier (free)
+    ("google/gemma-3-27b-it:free", "Gemma 3 27B", "B", "22.0%", "128k"),
+    ("google/gemma-3-12b-it:free", "Gemma 3 12B", "C", "15.0%", "128k"),
 ))
 
 # --- Hugging Face ---
@@ -224,8 +227,15 @@ _p("deepinfra", "DeepInfra", "https://api.deepinfra.com/v1/openai/chat/completio
 # --- Fireworks ---
 _p("fireworks", "Fireworks", "https://api.fireworks.ai/inference/v1/chat/completions",
    ("FIREWORKS_API_KEY",), (
-    ("accounts/fireworks/models/deepseek-v3", "DeepSeek V3", "S", "62.0%", "128k"),
-    ("accounts/fireworks/models/deepseek-r1", "DeepSeek R1", "S", "61.0%", "128k"),
+    ("accounts/fireworks/models/kimi-k2p5", "Kimi K2.5", "S+", "76.8%", "128k"),
+    ("accounts/fireworks/models/glm-5", "GLM 5", "S+", "77.8%", "200k"),
+    ("accounts/fireworks/models/glm-4p7", "GLM 4.7", "S+", "73.8%", "200k"),
+    ("accounts/fireworks/models/deepseek-v3p2", "DeepSeek V3.2", "S+", "73.1%", "128k"),
+    ("accounts/fireworks/models/kimi-k2-instruct-0905", "Kimi K2 Instruct", "S", "65.8%", "131k"),
+    ("accounts/fireworks/models/deepseek-v3p1", "DeepSeek V3.1", "S", "62.0%", "128k"),
+    ("accounts/fireworks/models/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
+    ("accounts/cogito/models/cogito-671b-v2-p1", "Cogito 671B", "A+", "55.0%", "128k"),
+    ("accounts/fireworks/models/mixtral-8x22b-instruct", "Mixtral 8x22B", "B+", "32.0%", "64k"),
 ))
 
 # --- Codestral ---
@@ -237,16 +247,23 @@ _p("codestral", "Codestral", "https://codestral.mistral.ai/v1/chat/completions",
 # --- Hyperbolic ---
 _p("hyperbolic", "Hyperbolic", "https://api.hyperbolic.xyz/v1/chat/completions",
    ("HYPERBOLIC_API_KEY",), (
-    ("qwen/qwen3-coder-480b-a35b-instruct", "Qwen3 Coder 480B", "S+", "70.6%", "256k"),
+    ("Qwen/Qwen3-Coder-480B-A35B-Instruct", "Qwen3 Coder 480B", "S+", "70.6%", "256k"),
+    ("Qwen/Qwen3-235B-A22B-Instruct-2507", "Qwen3 235B", "S+", "70.0%", "128k"),
+    ("Qwen/Qwen3-235B-A22B", "Qwen3 235B (base)", "S+", "70.0%", "128k"),
+    ("Qwen/Qwen3-Next-80B-A3B-Instruct", "Qwen3 80B Instruct", "S", "65.0%", "128k"),
     ("deepseek-ai/DeepSeek-R1-0528", "DeepSeek R1 0528", "S", "61.0%", "128k"),
-    ("moonshotai/Kimi-K2-Instruct", "Kimi K2 Instruct", "S", "65.8%", "131k"),
-    ("openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
-    ("Qwen/Qwen3-235B-A22B", "Qwen3 235B", "S+", "70.0%", "128k"),
-    ("qwen/qwen3-next-80b-a3b-instruct", "Qwen3 80B Instruct", "S", "65.0%", "128k"),
     ("deepseek-ai/DeepSeek-V3-0324", "DeepSeek V3 0324", "S", "62.0%", "128k"),
+    ("deepseek-ai/DeepSeek-V3", "DeepSeek V3", "S", "62.0%", "128k"),
+    ("deepseek-ai/DeepSeek-R1", "DeepSeek R1", "S", "61.0%", "128k"),
+    ("openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
+    ("openai/gpt-oss-120b-turbo", "GPT OSS 120B Turbo", "S", "60.0%", "128k"),
+    ("openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
     ("Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen2.5 Coder 32B", "A", "46.0%", "32k"),
+    ("Qwen/Qwen2.5-72B-Instruct", "Qwen2.5 72B", "A", "40.0%", "128k"),
     ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B", "A-", "39.5%", "128k"),
     ("meta-llama/Meta-Llama-3.1-405B-Instruct", "Llama 3.1 405B", "A", "44.0%", "128k"),
+    ("Qwen/QwQ-32B", "QwQ 32B", "A+", "50.0%", "131k"),
+    ("meta-llama/Meta-Llama-3.1-8B-Instruct", "Llama 3.1 8B", "B", "28.8%", "128k"),
 ))
 
 # --- Scaleway ---
@@ -327,6 +344,41 @@ _p("cloudflare", "Cloudflare AI",
     ("@cf/openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
     ("@cf/meta/llama-3.3-70b-instruct-fp8-fast", "Llama 3.3 70B", "A-", "39.5%", "128k"),
     ("@cf/meta/llama-3.1-8b-instruct", "Llama 3.1 8B", "B", "28.8%", "128k"),
+))
+
+# --- xAI ---
+_p("xai", "xAI", "https://api.x.ai/v1/chat/completions",
+   ("XAI_API_KEY",), (
+    ("grok-4", "Grok 4", "S+", "72.0%", "256k"),
+    ("grok-3", "Grok 3", "S", "60.0%", "128k"),
+    ("grok-3-mini", "Grok 3 Mini", "A+", "55.0%", "128k"),
+))
+
+# --- Inference.net ---
+_p("inferencenet", "Inference.net", "https://api.inference.net/v1/chat/completions",
+   ("INFERENCE_NET_API_KEY",), (
+    ("openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
+    ("openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
+    ("deepseek/deepseek-r1-0528/fp-8", "DeepSeek R1 0528", "S", "61.0%", "128k"),
+    ("deepseek/deepseek-v3-0324/fp-8", "DeepSeek V3 0324", "S", "62.0%", "128k"),
+    ("meta-llama/llama-3.3-70b-instruct/fp-8", "Llama 3.3 70B", "A-", "39.5%", "128k"),
+    ("qwen/qwen3-30b-a3b/fp8", "Qwen3 30B", "A+", "50.0%", "128k"),
+))
+
+# --- SEA-LION ---
+_p("sealion", "SEA-LION", "https://api.sea-lion.ai/v1/chat/completions",
+   ("SEALION_API_KEY",), (
+    ("aisingapore/Gemma-SEA-LION-v4-27B-IT", "Gemma SEA-LION v4 27B", "B+", "30.0%", "128k"),
+    ("aisingapore/Llama-SEA-LION-v3.5-70B-R", "Llama SEA-LION v3.5 70B R", "A-", "35.0%", "128k"),
+))
+
+# --- Ollama (local) ---
+_p("ollama", "Ollama", "http://localhost:11434/v1/chat/completions",
+   ("OLLAMA_API_KEY",), (
+    ("qwen3.5:35b-a3b", "Qwen3.5 35B MoE", "A+", "50.0%", "128k"),
+    ("qwen3.5:9b", "Qwen3.5 9B", "A-", "35.0%", "128k"),
+    ("gpt-oss:20b", "GPT OSS 20B", "A", "42.0%", "128k"),
+    ("glm-4.7-flash:latest", "GLM 4.7 Flash", "A+", "50.0%", "200k"),
 ))
 
 # --- Perplexity ---

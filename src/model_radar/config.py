@@ -73,8 +73,13 @@ def save_config(cfg: dict) -> None:
         pass
 
 
+_NO_AUTH_PROVIDERS = frozenset({"ollama"})
+
+
 def get_api_key(cfg: dict, provider_key: str) -> str | None:
-    """Get API key: env var > config file > None."""
+    """Get API key: env var > config file > None. Local providers return a dummy key."""
+    if provider_key in _NO_AUTH_PROVIDERS:
+        return "local"
     prov = PROVIDERS.get(provider_key)
     if prov:
         for var in prov.env_vars:
