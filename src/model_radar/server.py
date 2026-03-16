@@ -62,6 +62,14 @@ multiple models, and benchmark quality — all through MCP tools.
   Use free_only=true when the user wants a free model. Retries on next fastest if one fails.
 - ask(prompt, count=3, ...) — Run the same prompt on N models in parallel; compare responses.
 
+## Tool guide — Evaluation (LLM-as-judge)
+- judge(prompt, rubric, scale?, count?) — Rate a single item using N diverse judge models. \
+  Returns aggregate scores, per-judge details, and inter-rater agreement.
+- compare(item_a, item_b, context?, dimensions?, judge_count?) — Blind A/B comparison by N judges. \
+  Randomizes item order per judge to prevent position bias.
+- batch_judge(items, rubric, scale?, judge_count?, concurrency?) — Run evaluations at scale. \
+  Processes items with bounded concurrency and returns summary statistics.
+
 ## Tool guide — Quality & Setup
 - refresh_models(provider?, run_ping?, ping_limit?) — Fetch latest model lists from APIs; \
   use periodically so free/paid and model list stay current.
@@ -477,6 +485,163 @@ async def ask(
         count=count,
         min_tier=min_tier,
         provider=provider,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def judge(
+    prompt: str,
+    rubric: list[str],
+    scale: str = "1-5",
+    count: int = 3,
+    min_tier: str = "A",
+    free_only: bool = False,
+    output_format: str = "csv",
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+) -> str:
+    """Rate a single item using N diverse judge models and return aggregate scores.
+
+    Auto-selects judges spread across different providers for independence.
+    Enforces structured output (CSV or JSON scores), retries on malformed
+    responses, and computes inter-rater agreement metrics.
+
+    Use this for evaluation tasks: rating translations, code quality,
+    content accuracy, or any rubric-based assessment.
+
+    Args:
+        prompt: The evaluation prompt (describe what to rate and provide the content)
+        rubric: List of scoring dimensions (e.g. ["accuracy", "naturalness", "completeness"])
+        scale: Rating scale as "min-max" (default "1-5", also supports "1-10")
+        count: Number of judge models to use (default 3)
+        min_tier: Minimum quality tier for judge selection (default "A")
+        free_only: If true, only use free models as judges
+        output_format: How judges format scores — "csv" (default) or "json"
+        max_tokens: Max response tokens per judge (default 256)
+        temperature: Sampling temperature (default 0.0)
+    """
+    from .judge import judge_item
+
+    result = await judge_item(
+        prompt=prompt,
+        rubric=rubric,
+        scale=scale,
+        count=count,
+        min_tier=min_tier,
+        free_only=free_only,
+        output_format=output_format,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def compare(
+    item_a: str,
+    item_b: str,
+    context: str | None = None,
+    dimensions: list[str] | None = None,
+    scale: str = "1-5",
+    judge_count: int = 3,
+    blind: bool = True,
+    min_tier: str = "A",
+    free_only: bool = False,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+) -> str:
+    """Blind A/B comparison of two items judged by N models.
+
+    When blind=True (default), randomizes which item is shown as A vs B
+    to each judge independently, then de-randomizes scores. This prevents
+    position bias where judges consistently favor the first item shown.
+
+    Use for comparing translations, code solutions, summaries, or any
+    pair of outputs where you want an objective preference.
+
+    Args:
+        item_a: First item to compare
+        item_b: Second item to compare
+        context: Optional context for the comparison (e.g. the original task)
+        dimensions: Scoring dimensions (default ["quality"])
+        scale: Rating scale as "min-max" (default "1-5")
+        judge_count: Number of judge models (default 3)
+        blind: Randomize A/B order per judge to prevent position bias (default true)
+        min_tier: Minimum quality tier for judge selection (default "A")
+        free_only: If true, only use free models as judges
+        max_tokens: Max response tokens per judge (default 512)
+        temperature: Sampling temperature (default 0.0)
+    """
+    from .judge import compare_items
+
+    result = await compare_items(
+        item_a=item_a,
+        item_b=item_b,
+        context=context,
+        dimensions=dimensions,
+        scale=scale,
+        judge_count=judge_count,
+        blind=blind,
+        min_tier=min_tier,
+        free_only=free_only,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def batch_judge(
+    items: list[dict],
+    rubric: list[str],
+    scale: str = "1-5",
+    judge_count: int = 3,
+    min_tier: str = "A",
+    free_only: bool = False,
+    output_format: str = "csv",
+    concurrency: int = 5,
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+) -> str:
+    """Run judge evaluations at scale on a list of items.
+
+    Processes items with bounded concurrency using a shared pool of diverse
+    judges. Returns per-item scores, summary statistics (mean, stdev, min,
+    max per dimension), and error counts.
+
+    Each item in the list should have a "prompt" key with the evaluation
+    prompt, and an optional "metadata" key for tracking (e.g. language,
+    entry ID).
+
+    Args:
+        items: List of {"prompt": "...", "metadata": {...}} dicts
+        rubric: List of scoring dimensions (e.g. ["accuracy", "naturalness"])
+        scale: Rating scale as "min-max" (default "1-5")
+        judge_count: Judges per item (default 3)
+        min_tier: Minimum quality tier for judge selection (default "A")
+        free_only: If true, only use free models as judges
+        output_format: How judges format scores — "csv" (default) or "json"
+        concurrency: Max items evaluated in parallel (default 5)
+        max_tokens: Max response tokens per judge (default 256)
+        temperature: Sampling temperature (default 0.0)
+    """
+    from .judge import batch_judge_items
+
+    result = await batch_judge_items(
+        items=items,
+        rubric=rubric,
+        scale=scale,
+        judge_count=judge_count,
+        min_tier=min_tier,
+        free_only=free_only,
+        output_format=output_format,
+        concurrency=concurrency,
         max_tokens=max_tokens,
         temperature=temperature,
         state=_state,
