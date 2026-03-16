@@ -238,10 +238,19 @@ _p("fireworks", "Fireworks", "https://api.fireworks.ai/inference/v1/chat/complet
     ("accounts/fireworks/models/mixtral-8x22b-instruct", "Mixtral 8x22B", "B+", "32.0%", "64k"),
 ))
 
-# --- Codestral ---
-_p("codestral", "Codestral", "https://codestral.mistral.ai/v1/chat/completions",
+# --- Mistral (Codestral) ---
+_p("codestral", "Mistral", "https://api.mistral.ai/v1/chat/completions",
    ("CODESTRAL_API_KEY",), (
     ("codestral-latest", "Codestral", "B+", "34.0%", "256k"),
+    ("mistral-large-latest", "Mistral Large", "S", "60.7%", "128k"),
+    ("mistral-medium-latest", "Mistral Medium", "A+", "55.0%", "128k"),
+    ("mistral-small-latest", "Mistral Small", "A", "40.0%", "128k"),
+    ("devstral-small-latest", "Devstral Small", "A+", "55.2%", "128k"),
+    ("magistral-medium-latest", "Magistral Medium", "A+", "50.0%", "40k"),
+    ("magistral-small-latest", "Magistral Small", "A", "45.0%", "40k"),
+    ("ministral-8b-latest", "Ministral 8B", "B", "25.0%", "128k"),
+    ("open-mistral-nemo", "Mistral Nemo", "B", "25.0%", "128k"),
+    ("pixtral-large-latest", "Pixtral Large", "S", "60.0%", "128k"),
 ))
 
 # --- Hyperbolic ---

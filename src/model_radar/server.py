@@ -29,7 +29,7 @@ from .scanner import ScanState, format_result, scan_models
 MCP_INSTRUCTIONS = """\
 model-radar: Free coding model discovery and execution for AI agents.
 
-Pings 199 free coding LLM models across 21 providers and ranks them by \
+Pings 219 free coding LLM models across 21 providers and ranks them by \
 real-time latency. Run prompts on the fastest model, verify answers across \
 multiple models, and benchmark quality — all through MCP tools.
 
