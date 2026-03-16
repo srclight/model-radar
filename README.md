@@ -1,14 +1,14 @@
 <!-- mcp-name: io.github.srclight/model-radar -->
 # model-radar
 
-MCP server that pings 130+ free coding LLM models across 17 providers in real-time, ranks them by latency, and helps AI agents pick the fastest available model.
+MCP server that pings 219+ free coding LLM models across 21 providers in real-time, ranks them by latency, and helps AI agents pick the fastest available model.
 
 Inspired by [free-coding-models](https://github.com/vava-nessa/free-coding-models).
 
 ## Install
 
 ```sh
-pip install model-radar
+pip install model-radar-mcp
 ```
 
 ## Quick Start
@@ -39,9 +39,9 @@ Or copy the template: `cp config.example.json ~/.model-radar/config.json` and ed
 }
 ```
 
-**Cursor** (`.cursor/mcp.json` in project root or `~/.cursor/mcp.json`):
+**Cursor** (`~/.cursor/mcp.json`):
 
-Stdio (default — Cursor starts the server):
+Stdio (Cursor starts the server):
 ```json
 {
   "mcpServers": {
@@ -53,41 +53,45 @@ Stdio (default — Cursor starts the server):
 }
 ```
 
-SSE (you run the server; Cursor connects by URL):
-
-The server listens on one port and serves **both** Streamable HTTP (`/mcp`) and SSE (`/sse`, `/messages/`). Cursor tries Streamable HTTP first, then SSE, so it can connect as soon as the server is up.
-
-```sh
-# Terminal: start the server (leave it running)
-model-radar serve --transport sse --port 8765
-```
-Then in Cursor MCP config use the URL `http://127.0.0.1:8765` (or `http://127.0.0.1:8765/mcp` / `http://127.0.0.1:8765/sse` as your client expects). Start the server before opening the project so Cursor finds it immediately.
-
-**Web dashboard:** With `--web`, the same server serves a localhost UI at `http://127.0.0.1:8765/` for status, config, discovery, and running prompts (REST API at `/api/*`). MCP remains at `/sse`. **Privacy:** The server binds to 127.0.0.1 only; your API keys and data never leave your machine. Keys are stored only in `~/.model-radar/config.json` (0o600).
-```sh
-model-radar serve --transport sse --port 8765 --web
-```
-
-**Restarting the SSE server:** After updating model-radar, restart the server so new tools appear. You can either restart the process manually, or run with a restart wrapper and use the `restart_server()` MCP tool:
-
-```sh
-# Allow the MCP tool to request exit; a loop restarts the server
-export MODEL_RADAR_ALLOW_RESTART=1
-while true; do model-radar serve --transport sse --port 8765; sleep 1; done
-```
-Then call the `restart_server()` tool (e.g. from an agent); the process exits, the loop starts a new one with updated code, and you reconnect.
-
-**OpenClaw** (`~/.openclaw/openclaw.json`):
+Streamable HTTP (persistent server — recommended):
 ```json
 {
   "mcpServers": {
     "model-radar": {
-      "command": "model-radar",
-      "args": ["serve"]
+      "url": "http://127.0.0.1:8743/mcp",
+      "transportType": "streamable-http"
     }
   }
 }
 ```
+
+Start the server first:
+```sh
+model-radar serve --transport sse --port 8743
+```
+
+**OpenClaw** (`~/.openclaw/config/mcporter.json`):
+```json
+{
+  "mcpServers": {
+    "model-radar": {
+      "type": "http",
+      "url": "http://127.0.0.1:8743/mcp"
+    }
+  }
+}
+```
+
+**Web dashboard:** Add `--web` for a localhost UI at `http://127.0.0.1:8743/` for status, config, discovery, and running prompts. The server binds to 127.0.0.1 only; keys never leave your machine.
+```sh
+model-radar serve --transport sse --port 8743 --web
+```
+
+**Auto-restart wrapper:**
+```sh
+while true; do model-radar serve --transport sse --port 8743; sleep 1; done
+```
+Then call `restart_server()` from any MCP client to reload with updated code.
 
 ### 3. CLI usage
 
@@ -102,7 +106,7 @@ model-radar providers
 model-radar configure nvidia nvapi-xxx
 ```
 
-## Providers (17)
+## Providers (21)
 
 | Provider | Env Var | Free Tier |
 |----------|---------|-----------|
@@ -115,7 +119,7 @@ model-radar configure nvidia nvapi-xxx
 | Replicate | `REPLICATE_API_TOKEN` | Dev quota |
 | DeepInfra | `DEEPINFRA_API_KEY` | Free dev tier |
 | Fireworks | `FIREWORKS_API_KEY` | $1 free credits |
-| Codestral | `CODESTRAL_API_KEY` | 30 req/min, 2000/day |
+| Codestral/Mistral | `CODESTRAL_API_KEY` | 30 req/min, 2000/day |
 | Hyperbolic | `HYPERBOLIC_API_KEY` | $1 free trial |
 | Scaleway | `SCALEWAY_API_KEY` | 1M free tokens |
 | Google AI | `GOOGLE_API_KEY` | 14.4K req/day |
@@ -123,15 +127,39 @@ model-radar configure nvidia nvapi-xxx
 | Together AI | `TOGETHER_API_KEY` | Credits vary |
 | Cloudflare | `CLOUDFLARE_API_TOKEN` | 10K neurons/day |
 | Perplexity | `PERPLEXITY_API_KEY` | Tiered limits |
+| xAI | `XAI_API_KEY` | Free tier |
+| Inference.net | `INFERENCE_API_KEY` | Free tier |
+| SEA-LION | `SEALION_API_KEY` | Free tier |
+| Ollama | `OLLAMA_API_KEY` | Local, free |
 
 ## MCP Tools
 
-- **`list_providers()`** — See all 17 providers with config status
-- **`list_models(tier?, provider?, min_tier?)`** — Browse the model catalog
-- **`scan(tier?, provider?, min_tier?, configured_only?, limit?)`** — Ping models in parallel, ranked by latency
-- **`get_fastest(min_tier?, provider?, count?)`** — Quick: best N models right now
+### Discovery
+- **`list_providers()`** — See all 21 providers with config status
+- **`list_models(tier?, provider?, min_tier?, free_only?)`** — Browse the model catalog
+- **`scan(verify?)`** — Ping models in parallel, ranked by latency. `verify=True` checks for non-empty output.
+- **`get_fastest(min_tier?, count?, free_only?, verified?)`** — Best N models right now
+- **`get_workers(count?, min_tier?, verified?)`** — N verified-alive models from N distinct providers
 - **`provider_status()`** — Per-provider health check
+
+### Execution
+- **`run(prompt, model_id?, free_only?)`** — Execute on fastest model with auto-fallback
+- **`ask(prompt, count=3)`** — Same prompt on N models in parallel, compare responses
+- **`batch_run(prompts, results_file?)`** — Batch execution with incremental JSONL, resume support, adaptive concurrency
+
+### Evaluation (LLM-as-Judge)
+- **`judge(prompt, rubric, count=3)`** — Rate a single item with N diverse judges
+- **`compare(item_a, item_b, blind=True)`** — Blind A/B comparison, randomized order per judge
+- **`batch_judge(items, rubric, results_file?)`** — Evaluate at scale with incremental results
+- **`backtranslate_eval(text, translation, source_lang, target_lang)`** — Back-translation quality metric
+
+### Quality & Setup
+- **`benchmark(model_id?)`** — Quality-test with 5 coding challenges
+- **`refresh_models()`** — Fetch latest model lists from live APIs
+- **`setup_guide(provider?)`** — Setup instructions for unconfigured providers
 - **`configure_key(provider, api_key)`** — Save an API key
+- **`restart_server()`** — Restart for code updates (SSE mode)
+- **`server_stats()`** — Uptime and start time
 
 ## Tier Scale (SWE-bench Verified)
 
@@ -145,6 +173,13 @@ model-radar configure nvidia nvapi-xxx
 | B+ | 30-35% | Average |
 | B | 20-30% | Below average |
 | C | <20% | Lightweight/edge |
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — Module map, data flow, transport, rate limiting
+- [MCP Transport](docs/mcp-transport.md) — Transport options, stateless HTTP, client configuration
+- [Translation Pipeline Playbook](docs/playbook-translation-pipeline.md) — Batch translation patterns
+- [LLM-as-Judge Playbook](docs/playbook-llm-as-judge.md) — Evaluation patterns and judge selection
 
 ## License
 
