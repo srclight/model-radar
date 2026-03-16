@@ -88,6 +88,8 @@ async def ask_models(
         else:
             entry["content"] = result.get("content", "")
             entry["usage"] = result.get("usage")
+            if result.get("think_content"):
+                entry["think_content"] = result["think_content"]
             if "raw_response" in result:
                 entry["raw_response"] = result["raw_response"]
 

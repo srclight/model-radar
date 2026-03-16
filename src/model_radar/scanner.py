@@ -31,12 +31,17 @@ TIMEOUT_SECONDS = 10.0
 
 
 class ProviderThrottle:
-    """Tracks 429 errors per provider and computes exponential backoff delays."""
+    """Tracks 429 errors per provider, computes backoff delays, and adjusts concurrency."""
 
-    def __init__(self, max_delay: float = 16.0, window: float = 60.0):
+    def __init__(self, max_delay: float = 16.0, window: float = 60.0,
+                 default_concurrency: int = 5, min_concurrency: int = 1):
         self._recent_429s: dict[str, list[float]] = {}
         self._max_delay = max_delay
         self._window = window
+        self._default_concurrency = default_concurrency
+        self._min_concurrency = min_concurrency
+        self._concurrency: dict[str, int] = {}
+        self._recent_calls: dict[str, list[tuple[float, bool]]] = {}  # (time, was_429)
 
     def record_429(self, provider: str) -> None:
         now = time.monotonic()
@@ -44,14 +49,36 @@ class ProviderThrottle:
         hits.append(now)
         # Prune old entries outside window
         self._recent_429s[provider] = [t for t in hits if now - t < self._window]
+        # Track for adaptive concurrency
+        self._recent_calls.setdefault(provider, []).append((now, True))
+        self._prune_calls(provider, now)
+        # Reduce concurrency on 429
+        current = self._concurrency.get(provider, self._default_concurrency)
+        self._concurrency[provider] = max(self._min_concurrency, current // 2)
 
     def record_success(self, provider: str) -> None:
+        now = time.monotonic()
         hits = self._recent_429s.get(provider)
         if hits:
             # Decay: remove oldest entry on success
             hits.pop(0)
             if not hits:
                 del self._recent_429s[provider]
+        # Track for adaptive concurrency
+        self._recent_calls.setdefault(provider, []).append((now, False))
+        self._prune_calls(provider, now)
+        # Gradually recover concurrency on sustained success
+        calls = self._recent_calls.get(provider, [])
+        recent_successes = sum(1 for _, was_429 in calls[-10:] if not was_429)
+        if recent_successes >= 10:
+            current = self._concurrency.get(provider, self._default_concurrency)
+            if current < self._default_concurrency:
+                self._concurrency[provider] = min(self._default_concurrency, current + 1)
+
+    def _prune_calls(self, provider: str, now: float) -> None:
+        calls = self._recent_calls.get(provider)
+        if calls:
+            self._recent_calls[provider] = [(t, f) for t, f in calls if now - t < self._window]
 
     def should_throttle(self, provider: str) -> float:
         """Returns delay in seconds (0 = no throttle)."""
@@ -67,6 +94,22 @@ class ProviderThrottle:
         # Exponential backoff: 1s, 2s, 4s, 8s, 16s based on hit count
         delay = min(2 ** (len(recent) - 1), self._max_delay)
         return delay
+
+    def effective_concurrency(self, provider: str | None = None) -> int:
+        """Get the current adaptive concurrency for a provider (or global default)."""
+        if provider is None:
+            # Return the minimum across all throttled providers, or default
+            if not self._concurrency:
+                return self._default_concurrency
+            return min(self._concurrency.values())
+        return self._concurrency.get(provider, self._default_concurrency)
+
+    def is_degraded(self, provider: str) -> bool:
+        """True if a provider has recent 429s (useful for judge/worker selection)."""
+        now = time.monotonic()
+        hits = self._recent_429s.get(provider, [])
+        recent = [t for t in hits if now - t < self._window]
+        return len(recent) >= 2
 
 
 @dataclass
@@ -252,6 +295,15 @@ async def _verify_one(
                 content = "".join(
                     p.get("text", "") for p in content if isinstance(p, dict)
                 )
+            # Check reasoning fields for models that put output there (GPT-OSS etc.)
+            if not content or not content.strip():
+                content = (
+                    msg.get("reasoning")
+                    or msg.get("reasoning_content")
+                    or ""
+                )
+                if content and not isinstance(content, str):
+                    content = str(content)
 
         # Non-empty, non-whitespace content = functionally alive
         return bool(content and content.strip())
