@@ -46,21 +46,37 @@ multiple models, and benchmark quality — all through MCP tools.
 - "Best model for coding" / "fastest model" → get_fastest(min_tier="A", count=5)
 - "Compare answers from several models" → ask(prompt, count=3)
 - "Refresh the model list from the internet" → refresh_models()
+- "Run these prompts in batch" → batch_run(prompts=[{"prompt": "..."}, ...])
+- "Check which models actually work" → scan(verify=True) or get_fastest(verified=True)
 
 ## Tool guide — Discovery
 - list_providers() — See all 21 providers and which have API keys. Call first when unsure.
 - list_models(tier?, provider?, min_tier?, free_only?) — Browse catalog without pinging. \
   model_id = code name to use when inserting/configuring (API, Cursor, run()); label = display only. \
   min_tier="A" means A or better. free_only=true for free only. Response includes is_free when known.
-- scan(...) — Ping models in parallel, get ranked by latency. Use when you need live speed data.
-- get_fastest(min_tier?, provider?, count?, free_only?) — Best N models right now. \
-  Example: get_fastest(free_only=True, min_tier="A", count=5) for "5 free A-or-better models".
+- scan(..., verify?) — Ping models in parallel, get ranked by latency. Use when you need live speed data. \
+  Set verify=true to also check models produce non-empty output (catches "ghost" models that ping UP but return empty content).
+- get_fastest(min_tier?, provider?, count?, free_only?, verified?) — Best N models right now. \
+  Example: get_fastest(free_only=True, min_tier="A", count=5) for "5 free A-or-better models". \
+  Set verified=true to exclude models that return empty responses.
 - provider_status() — Per-provider health check.
 
 ## Tool guide — Execution
 - run(prompt, free_only?, model_id?, provider?, min_tier?, ...) — Run a prompt on the fastest model. \
   Use free_only=true when the user wants a free model. Retries on next fastest if one fails.
 - ask(prompt, count=3, ...) — Run the same prompt on N models in parallel; compare responses.
+- batch_run(prompts, ...) — Run multiple prompts with bounded concurrency. For translation pipelines, \
+  data extraction, classification. Auto-retries failed items on alternate models. \
+  Set results_file for incremental JSONL output and resume support.
+
+## Tool guide — Evaluation (LLM-as-judge)
+- judge(prompt, rubric, scale?, count?) — Rate a single item using N diverse judge models. \
+  Returns aggregate scores, per-judge details, and inter-rater agreement.
+- compare(item_a, item_b, context?, dimensions?, judge_count?) — Blind A/B comparison by N judges. \
+  Randomizes item order per judge to prevent position bias.
+- batch_judge(items, rubric, scale?, judge_count?, concurrency?, results_file?) — Run evaluations at scale. \
+  Processes items with bounded concurrency and returns summary statistics. \
+  Set results_file for incremental JSONL output and automatic resume on interruption.
 
 ## Tool guide — Quality & Setup
 - refresh_models(provider?, run_ping?, ping_limit?) — Fetch latest model lists from APIs; \
@@ -192,10 +208,17 @@ async def scan(
     configured_only: bool = False,
     free_only: bool = False,
     limit: int = 20,
+    verify: bool = False,
+    verify_prompt: str | None = None,
 ) -> str:
     """Ping models in parallel and return ranked results by latency. Use when you need live speed data or a ranked list.
 
     Pings all matching models, returns sorted fastest-first. Takes 2-10 seconds depending on filters.
+
+    When verify=True, sends a real prompt to each "up" model and checks for non-empty
+    content. Models that return empty/garbage are marked as BROKEN (distinct from ERROR
+    or OVERLOADED). This catches models that ping as UP but are functionally dead.
+    Verification results are cached across scans within the session.
 
     Args:
         tier: Filter to exact tier (S+, S, A+, A, A-, B+, B, C)
@@ -204,10 +227,13 @@ async def scan(
         configured_only: Only ping models whose provider has an API key
         free_only: Only include models marked as free (from API or :free/-free in id)
         limit: Max results (default 20, 0 = all)
+        verify: Send a real prompt to validate non-empty content (default false)
+        verify_prompt: Custom verification prompt (default "Reply with exactly: OK")
     """
     results = await scan_models(
         tier=tier, provider=provider, min_tier=min_tier,
         configured_only=configured_only, free_only=free_only, limit=limit, state=_state,
+        verify=verify, verify_prompt=verify_prompt,
     )
     rows = [format_result(r, _state) for r in results]
 
@@ -226,23 +252,29 @@ async def get_fastest(
     provider: str | None = None,
     count: int = 5,
     free_only: bool = False,
+    verified: bool = False,
 ) -> str:
     """Get the N fastest available models right now. Use when the user wants recommendations or \"best/fastest/free\" models.
 
     Pings configured providers and returns top N by latency. Use model_id from results as the code name when inserting or configuring (e.g. run(prompt, model_id=..., provider=...)). Example: get_fastest(free_only=True, min_tier=\"A\", count=5) for \"5 free A-or-better models\".
+
+    When verified=True, also sends a real prompt to each model to confirm it produces
+    non-empty output. Models that ping as UP but return empty content are excluded.
 
     Args:
         min_tier: Minimum quality tier (default "A" — shows S+, S, A+, A)
         provider: Limit to specific provider
         count: How many results (default 5)
         free_only: If true, only return models marked as free
+        verified: If true, verify models produce non-empty output (default false)
     """
     results = await scan_models(
         min_tier=min_tier, provider=provider,
-        configured_only=True, free_only=free_only, limit=count, state=_state,
+        configured_only=True, free_only=free_only, limit=count * 2 if verified else count,
+        state=_state, verify=verified,
     )
     # Only return models that are actually up
-    up_results = [r for r in results if r.status == "up"]
+    up_results = [r for r in results if r.status == "up"][:count]
     rows = [format_result(r, _state) for r in up_results]
 
     if not rows:
@@ -480,6 +512,230 @@ async def ask(
         max_tokens=max_tokens,
         temperature=temperature,
         state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def batch_run(
+    prompts: list[dict],
+    system_prompt: str | None = None,
+    model_id: str | None = None,
+    provider: str | None = None,
+    min_tier: str = "A",
+    free_only: bool = False,
+    max_tokens: int = 4096,
+    temperature: float = 0.0,
+    concurrency: int = 5,
+    retry_on_fail: bool = True,
+    results_file: str | None = None,
+) -> str:
+    """Run multiple prompts in parallel with bounded concurrency and auto-retry.
+
+    For batch workloads: translation pipelines, data extraction, classification,
+    content generation. Picks the fastest model and runs all prompts through it.
+    Failed items are automatically retried on alternate models.
+
+    Each prompt dict should have a "prompt" key and optional "system_prompt"
+    (overrides the top-level system_prompt) and "metadata" keys for tracking.
+
+    When results_file is set, each completed item is appended as a JSON line
+    immediately. If interrupted, the file contains all completed items and
+    can be resumed (already-completed indices are skipped).
+
+    Args:
+        prompts: List of {"prompt": "...", "system_prompt": "...", "metadata": {...}}
+        system_prompt: Default system prompt for all items (per-item overrides)
+        model_id: Specific model to use (skips scanning). Use list_models() to browse.
+        provider: Limit to a specific provider
+        min_tier: Minimum quality tier when auto-selecting (default "A")
+        free_only: If true, only use free models
+        max_tokens: Max response tokens per item (default 4096)
+        temperature: Sampling temperature (default 0.0)
+        concurrency: Max parallel requests (default 5)
+        retry_on_fail: Auto-retry failed items on alternate models (default true)
+        results_file: Path to JSONL file for incremental writes and resume support
+    """
+    from .runner import batch_run as _batch_run
+
+    result = await _batch_run(
+        prompts=prompts,
+        system_prompt=system_prompt,
+        model_id=model_id,
+        provider=provider,
+        min_tier=min_tier,
+        free_only=free_only,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        concurrency=concurrency,
+        retry_on_fail=retry_on_fail,
+        results_file=results_file,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def judge(
+    prompt: str,
+    rubric: list[str],
+    scale: str = "1-5",
+    count: int = 3,
+    min_tier: str = "A",
+    free_only: bool = False,
+    output_format: str = "csv",
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+) -> str:
+    """Rate a single item using N diverse judge models and return aggregate scores.
+
+    Auto-selects judges spread across different providers for independence.
+    Enforces structured output (CSV or JSON scores), retries on malformed
+    responses, and computes inter-rater agreement metrics.
+
+    Use this for evaluation tasks: rating translations, code quality,
+    content accuracy, or any rubric-based assessment.
+
+    Args:
+        prompt: The evaluation prompt (describe what to rate and provide the content)
+        rubric: List of scoring dimensions (e.g. ["accuracy", "naturalness", "completeness"])
+        scale: Rating scale as "min-max" (default "1-5", also supports "1-10")
+        count: Number of judge models to use (default 3)
+        min_tier: Minimum quality tier for judge selection (default "A")
+        free_only: If true, only use free models as judges
+        output_format: How judges format scores — "csv" (default) or "json"
+        max_tokens: Max response tokens per judge (default 256)
+        temperature: Sampling temperature (default 0.0)
+    """
+    from .judge import judge_item
+
+    result = await judge_item(
+        prompt=prompt,
+        rubric=rubric,
+        scale=scale,
+        count=count,
+        min_tier=min_tier,
+        free_only=free_only,
+        output_format=output_format,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def compare(
+    item_a: str,
+    item_b: str,
+    context: str | None = None,
+    dimensions: list[str] | None = None,
+    scale: str = "1-5",
+    judge_count: int = 3,
+    blind: bool = True,
+    min_tier: str = "A",
+    free_only: bool = False,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+) -> str:
+    """Blind A/B comparison of two items judged by N models.
+
+    When blind=True (default), randomizes which item is shown as A vs B
+    to each judge independently, then de-randomizes scores. This prevents
+    position bias where judges consistently favor the first item shown.
+
+    Use for comparing translations, code solutions, summaries, or any
+    pair of outputs where you want an objective preference.
+
+    Args:
+        item_a: First item to compare
+        item_b: Second item to compare
+        context: Optional context for the comparison (e.g. the original task)
+        dimensions: Scoring dimensions (default ["quality"])
+        scale: Rating scale as "min-max" (default "1-5")
+        judge_count: Number of judge models (default 3)
+        blind: Randomize A/B order per judge to prevent position bias (default true)
+        min_tier: Minimum quality tier for judge selection (default "A")
+        free_only: If true, only use free models as judges
+        max_tokens: Max response tokens per judge (default 512)
+        temperature: Sampling temperature (default 0.0)
+    """
+    from .judge import compare_items
+
+    result = await compare_items(
+        item_a=item_a,
+        item_b=item_b,
+        context=context,
+        dimensions=dimensions,
+        scale=scale,
+        judge_count=judge_count,
+        blind=blind,
+        min_tier=min_tier,
+        free_only=free_only,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def batch_judge(
+    items: list[dict],
+    rubric: list[str],
+    scale: str = "1-5",
+    judge_count: int = 3,
+    min_tier: str = "A",
+    free_only: bool = False,
+    output_format: str = "csv",
+    concurrency: int = 5,
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+    results_file: str | None = None,
+) -> str:
+    """Run judge evaluations at scale on a list of items.
+
+    Processes items with bounded concurrency using a shared pool of diverse
+    judges. Returns per-item scores, summary statistics (mean, stdev, min,
+    max per dimension), and error counts.
+
+    Each item in the list should have a "prompt" key with the evaluation
+    prompt, and an optional "metadata" key for tracking (e.g. language,
+    entry ID).
+
+    When results_file is set, each scored item is appended as a JSON line
+    immediately after scoring. On interruption, the file contains all
+    completed items. On resume (same results_file), already-scored indices
+    are skipped automatically.
+
+    Args:
+        items: List of {"prompt": "...", "metadata": {...}} dicts
+        rubric: List of scoring dimensions (e.g. ["accuracy", "naturalness"])
+        scale: Rating scale as "min-max" (default "1-5")
+        judge_count: Judges per item (default 3)
+        min_tier: Minimum quality tier for judge selection (default "A")
+        free_only: If true, only use free models as judges
+        output_format: How judges format scores — "csv" (default) or "json"
+        concurrency: Max items evaluated in parallel (default 5)
+        max_tokens: Max response tokens per judge (default 256)
+        temperature: Sampling temperature (default 0.0)
+        results_file: Path to JSONL file for incremental writes and resume support
+    """
+    from .judge import batch_judge_items
+
+    result = await batch_judge_items(
+        items=items,
+        rubric=rubric,
+        scale=scale,
+        judge_count=judge_count,
+        min_tier=min_tier,
+        free_only=free_only,
+        output_format=output_format,
+        concurrency=concurrency,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        state=_state,
+        results_file=results_file,
     )
     return json.dumps(result, indent=2)
 
