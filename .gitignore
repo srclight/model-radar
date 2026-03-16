@@ -29,6 +29,12 @@ SQLITE_FEATURE.md
 # Output folder for generated assets
 output/
 
+# Playwright MCP logs
+.playwright-mcp/
+
+# Private strategy notes
+NEXT-STEPS.md
+
 # Srclight index (local dev tooling)
 .srclight/
 
