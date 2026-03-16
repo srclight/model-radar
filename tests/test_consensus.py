@@ -88,3 +88,24 @@ async def test_ask_partial_failure():
 
     assert result["models_responded"] == 1
     assert result["models_failed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ask_surfaces_think_content():
+    """Should pass through think_content from reasoning models."""
+    models = [_model(model_id="m1", label="Model A")]
+    ping_results = [PingResult(model=m, status="up", latency_ms=100) for m in models]
+
+    async def mock_call(model, messages, cfg, max_tokens, temperature):
+        resp = _make_response(model.model_id, "4,5,3")
+        resp["think_content"] = "Let me analyze this..."
+        return resp
+
+    with patch("model_radar.consensus.load_config", return_value={"api_keys": {"nvidia": "k"}, "providers": {}}), \
+         patch("model_radar.consensus.scan_models", return_value=ping_results), \
+         patch("model_radar.consensus._call_model", side_effect=mock_call), \
+         patch("model_radar.consensus.get_model_quality", return_value=None):
+        result = await ask_models(prompt="hello", count=1)
+
+    assert result["responses"][0]["think_content"] == "Let me analyze this..."
+    assert result["responses"][0]["content"] == "4,5,3"
