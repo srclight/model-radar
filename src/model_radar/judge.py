@@ -694,6 +694,7 @@ async def batch_judge_items(
     max_tokens: int = 256,
     temperature: float = 0.0,
     state: ScanState | None = None,
+    results_file: str | None = None,
 ) -> dict:
     """Run judge evaluations at scale on a list of items.
 
@@ -713,9 +714,26 @@ async def batch_judge_items(
         temperature: Sampling temperature
         state: Shared scan state
 
+    Args:
+        items: List of dicts with "prompt" key (and optional "metadata")
+        rubric: List of dimension names
+        scale: Rating scale
+        judge_count: Judges per item
+        min_tier: Minimum quality tier for judge selection
+        free_only: Only use free models
+        output_format: "csv" or "json"
+        concurrency: Max items evaluated in parallel
+        max_tokens: Max response tokens per judge
+        temperature: Sampling temperature
+        state: Shared scan state
+        results_file: Path to JSONL file for incremental writes; if the file
+            exists, already-scored indices are skipped (resume support)
+
     Returns:
         Dict with all results, summary statistics, and error count.
     """
+    import json as _json
+
     if not items:
         return {"error": "items list is empty"}
     if not rubric:
@@ -727,6 +745,21 @@ async def batch_judge_items(
     )
     if not judges:
         return {"error": "No judge models available. Check API keys with list_providers()."}
+
+    # Resume support: load already-scored indices from results_file
+    completed_indices: dict[int, dict] = {}
+    if results_file:
+        try:
+            with open(results_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        entry = _json.loads(line)
+                        idx = entry.get("index", -1)
+                        if idx >= 0 and "scores" in entry:
+                            completed_indices[idx] = entry
+        except FileNotFoundError:
+            pass
 
     cfg = load_config()
     system_prompt = _build_judge_system_prompt(rubric, scale, output_format)
@@ -791,20 +824,43 @@ async def batch_judge_items(
                 "metadata": item.get("metadata"),
             }
 
-    # Run all items with bounded concurrency
-    tasks = [_evaluate_one(i, item) for i, item in enumerate(items)]
-    results = await asyncio.gather(*tasks)
+    # Open results file for incremental writes
+    results_fh = None
+    if results_file:
+        results_fh = open(results_file, "a")
+
+    try:
+        # Build task list, skipping already-completed items
+        pending_tasks = []
+        results_list: list[dict] = [{}] * len(items)
+        for i, item in enumerate(items):
+            if i in completed_indices:
+                results_list[i] = completed_indices[i]
+            else:
+                pending_tasks.append(_evaluate_one(i, item))
+
+        completed = await asyncio.gather(*pending_tasks)
+
+        for r in completed:
+            idx = r["index"]
+            results_list[idx] = r
+            if results_fh:
+                results_fh.write(_json.dumps(r) + "\n")
+                results_fh.flush()
+    finally:
+        if results_fh:
+            results_fh.close()
 
     # Sort by original index
-    results.sort(key=lambda r: r["index"])
+    results_list.sort(key=lambda r: r.get("index", 0))
 
     # Compute summary statistics
-    total_errors = sum(1 for r in results if "error" in r and "scores" not in r)
-    total_judge_failures = sum(r.get("judges_failed", 0) for r in results)
+    total_errors = sum(1 for r in results_list if "error" in r and "scores" not in r)
+    total_judge_failures = sum(r.get("judges_failed", 0) for r in results_list)
 
     # Aggregate scores across all items per dimension
     dim_means: dict[str, list[float]] = defaultdict(list)
-    for r in results:
+    for r in results_list:
         for dim in rubric:
             if dim in r.get("scores", {}):
                 dim_means[dim].append(r["scores"][dim])
@@ -824,12 +880,19 @@ async def batch_judge_items(
         f"{j.label} ({PROVIDERS[j.provider].name})" for j in judges
     ]
 
-    return {
+    result = {
         "items_total": len(items),
         "items_scored": len(items) - total_errors,
         "items_errored": total_errors,
         "total_judge_failures": total_judge_failures,
         "judges_used": judges_used,
         "summary": summary,
-        "results": results,
+        "results": results_list,
     }
+    skipped = len(completed_indices)
+    if skipped:
+        result["items_resumed"] = skipped
+    if results_file:
+        result["results_file"] = results_file
+
+    return result
