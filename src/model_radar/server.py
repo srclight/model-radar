@@ -102,7 +102,7 @@ min_tier="A" means "A or better" (includes A+, S, S+).
   ~/.model-radar/config.json (0o600).
 """
 
-mcp = FastMCP("model-radar", instructions=MCP_INSTRUCTIONS)
+mcp = FastMCP("model-radar", instructions=MCP_INSTRUCTIONS, stateless_http=True)
 
 # Shared scan state for rolling averages across calls within a session
 _state = ScanState()
