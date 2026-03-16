@@ -2,7 +2,7 @@
 model-radar MCP server.
 
 Exposes tools for AI agents to discover, ping, and select
-the fastest free coding LLM models across 17 providers.
+the fastest free coding LLM models across 21 providers.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from .scanner import ScanState, format_result, scan_models
 MCP_INSTRUCTIONS = """\
 model-radar: Free coding model discovery and execution for AI agents.
 
-Pings 134+ free coding LLM models across 17 providers and ranks them by \
+Pings 199 free coding LLM models across 21 providers and ranks them by \
 real-time latency. Run prompts on the fastest model, verify answers across \
 multiple models, and benchmark quality — all through MCP tools.
 
@@ -48,7 +48,7 @@ multiple models, and benchmark quality — all through MCP tools.
 - "Refresh the model list from the internet" → refresh_models()
 
 ## Tool guide — Discovery
-- list_providers() — See all 17 providers and which have API keys. Call first when unsure.
+- list_providers() — See all 21 providers and which have API keys. Call first when unsure.
 - list_models(tier?, provider?, min_tier?, free_only?) — Browse catalog without pinging. \
   model_id = code name to use when inserting/configuring (API, Cursor, run()); label = display only. \
   min_tier="A" means A or better. free_only=true for free only. Response includes is_free when known.
@@ -110,7 +110,7 @@ _state = ScanState()
 
 @mcp.tool()
 async def list_providers() -> str:
-    """List all 17 providers with their status (configured/unconfigured, enabled/disabled, model count).
+    """List all 21 providers with their status (configured/unconfigured, enabled/disabled, model count).
 
     Call this first to see which providers you have API keys for.
     No network requests — instant response.

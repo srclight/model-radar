@@ -16,7 +16,8 @@ def test_all_providers_defined():
         "nvidia", "groq", "cerebras", "sambanova", "openrouter",
         "huggingface", "replicate", "deepinfra", "fireworks", "codestral",
         "hyperbolic", "scaleway", "googleai", "siliconflow", "together",
-        "cloudflare", "perplexity",
+        "cloudflare", "perplexity", "xai", "inferencenet", "sealion",
+        "ollama",
     }
     assert set(PROVIDERS.keys()) == expected
 
@@ -30,7 +31,7 @@ def test_provider_has_models():
 def test_provider_has_url():
     """Every provider should have an API URL."""
     for key, prov in PROVIDERS.items():
-        assert prov.url.startswith("https://"), f"Provider {key} has invalid URL"
+        assert prov.url.startswith("http://") or prov.url.startswith("https://"), f"Provider {key} has invalid URL"
 
 
 def test_provider_has_env_vars():
