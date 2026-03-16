@@ -321,7 +321,10 @@ async def batch_run(
         else:
             fallback_models = []
 
-    semaphore = asyncio.Semaphore(concurrency)
+    # Adaptive concurrency: use throttle's recommendation if lower than requested
+    effective = _throttle.effective_concurrency(primary_model.provider)
+    actual_concurrency = min(concurrency, effective)
+    semaphore = asyncio.Semaphore(actual_concurrency)
 
     # Resume support: load already-completed indices from results_file
     completed_indices: set[int] = set()
@@ -453,3 +456,76 @@ async def batch_run(
         summary["results_file"] = results_file
 
     return {"summary": summary, "results": results}
+
+
+async def backtranslate_eval(
+    text: str,
+    translation: str,
+    source_lang: str,
+    target_lang: str,
+    back_model_id: str | None = None,
+    min_tier: str = "A",
+    free_only: bool = False,
+    max_tokens: int = 512,
+    state: ScanState | None = None,
+) -> dict:
+    """Translate back to source language and compute gloss overlap.
+
+    Uses a different model than the forward translator (if possible) to avoid
+    circular agreement. Returns the back-translation, overlap score, and
+    matching/missing glosses.
+    """
+    cfg = load_config()
+
+    # Build back-translation prompt
+    prompt = (
+        f"Translate the following {target_lang} text back to {source_lang}. "
+        f"Output ONLY the translation, nothing else.\n\n{translation}"
+    )
+    messages = [{"role": "user", "content": prompt}]
+
+    if back_model_id:
+        target = _find_model(back_model_id)
+        if not target:
+            return {"error": f"Model '{back_model_id}' not found"}
+        result = await _call_model(model=target, messages=messages, cfg=cfg,
+                                   max_tokens=max_tokens, temperature=0.0)
+    else:
+        result = await run_on_fastest(
+            prompt=prompt, min_tier=min_tier, free_only=free_only,
+            max_tokens=max_tokens, temperature=0.0, state=state,
+        )
+
+    if "error" in result:
+        return result
+
+    back_translation = result.get("content", "").strip()
+
+    # Compute gloss overlap — split into words, compare sets
+    original_glosses = set(text.lower().split())
+    back_glosses = set(back_translation.lower().split())
+
+    # Remove common stop words for cleaner overlap
+    stop_words = {"a", "an", "the", "of", "to", "in", "for", "and", "or", "is", "it", "by", "on"}
+    original_glosses -= stop_words
+    back_glosses -= stop_words
+
+    if not original_glosses:
+        overlap = 1.0 if not back_glosses else 0.0
+    else:
+        matching = original_glosses & back_glosses
+        overlap = len(matching) / len(original_glosses)
+
+    return {
+        "original": text,
+        "translation": translation,
+        "back_translation": back_translation,
+        "gloss_overlap": round(overlap, 4),
+        "matching_glosses": sorted(original_glosses & back_glosses),
+        "missing_glosses": sorted(original_glosses - back_glosses),
+        "extra_glosses": sorted(back_glosses - original_glosses),
+        "model_id": result.get("model_id"),
+        "model_label": result.get("model_label"),
+        "provider": result.get("provider"),
+        "latency_ms": result.get("latency_ms"),
+    }
