@@ -276,6 +276,9 @@ _p("scaleway", "Scaleway", "https://api.scaleway.ai/v1/chat/completions",
     ("llama-3.3-70b-instruct", "Llama 3.3 70B", "A-", "39.5%", "128k"),
     ("deepseek-r1-distill-llama-70b", "R1 Distill 70B", "A", "43.9%", "128k"),
     ("mistral-small-3.2-24b-instruct-2506", "Mistral Small 3.2", "B+", "30.0%", "128k"),
+    ("gemma-3-27b-it", "Gemma 3 27B", "B", "22.0%", "128k"),
+    ("holo2-30b-a3b", "Holo2 30B MoE", "B", "25.0%", "128k"),
+    ("llama-3.1-8b-instruct", "Llama 3.1 8B", "B", "28.8%", "128k"),
 ))
 
 # --- Google AI ---
@@ -339,10 +342,18 @@ _p("cloudflare", "Cloudflare AI",
    "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions",
    ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_KEY"), (
     ("@cf/openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
+    ("@cf/nvidia/nemotron-3-120b-a12b", "Nemotron 3 120B", "A+", "50.0%", "128k"),
     ("@cf/qwen/qwen2.5-coder-32b-instruct", "Qwen2.5 Coder 32B", "A", "46.0%", "32k"),
+    ("@cf/qwen/qwq-32b", "QwQ 32B", "A", "46.0%", "32k"),
     ("@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", "R1 Distill 32B", "A", "43.9%", "128k"),
     ("@cf/openai/gpt-oss-20b", "GPT OSS 20B", "A", "42.0%", "128k"),
+    ("@cf/mistralai/mistral-small-3.1-24b-instruct", "Mistral Small 3.1 24B", "A", "40.0%", "128k"),
     ("@cf/meta/llama-3.3-70b-instruct-fp8-fast", "Llama 3.3 70B", "A-", "39.5%", "128k"),
+    ("@cf/meta/llama-4-scout-17b-16e-instruct", "Llama 4 Scout 17B", "A-", "38.0%", "512k"),
+    ("@cf/qwen/qwen3-30b-a3b-fp8", "Qwen3 30B MoE", "A-", "36.0%", "128k"),
+    ("@cf/google/gemma-3-12b-it", "Gemma 3 12B", "B+", "34.0%", "128k"),
+    ("@cf/zai-org/glm-4.7-flash", "GLM 4.7 Flash", "B+", "30.0%", "128k"),
+    ("@cf/ibm-granite/granite-4.0-h-micro", "Granite 4.0 Micro", "B", "25.0%", "128k"),
     ("@cf/meta/llama-3.1-8b-instruct", "Llama 3.1 8B", "B", "28.8%", "128k"),
 ))
 
