@@ -30,6 +30,45 @@ PING_PAYLOAD = {
 TIMEOUT_SECONDS = 10.0
 
 
+class ProviderThrottle:
+    """Tracks 429 errors per provider and computes exponential backoff delays."""
+
+    def __init__(self, max_delay: float = 16.0, window: float = 60.0):
+        self._recent_429s: dict[str, list[float]] = {}
+        self._max_delay = max_delay
+        self._window = window
+
+    def record_429(self, provider: str) -> None:
+        now = time.monotonic()
+        hits = self._recent_429s.setdefault(provider, [])
+        hits.append(now)
+        # Prune old entries outside window
+        self._recent_429s[provider] = [t for t in hits if now - t < self._window]
+
+    def record_success(self, provider: str) -> None:
+        hits = self._recent_429s.get(provider)
+        if hits:
+            # Decay: remove oldest entry on success
+            hits.pop(0)
+            if not hits:
+                del self._recent_429s[provider]
+
+    def should_throttle(self, provider: str) -> float:
+        """Returns delay in seconds (0 = no throttle)."""
+        now = time.monotonic()
+        hits = self._recent_429s.get(provider)
+        if not hits:
+            return 0.0
+        # Prune old entries
+        recent = [t for t in hits if now - t < self._window]
+        self._recent_429s[provider] = recent
+        if not recent:
+            return 0.0
+        # Exponential backoff: 1s, 2s, 4s, 8s, 16s based on hit count
+        delay = min(2 ** (len(recent) - 1), self._max_delay)
+        return delay
+
+
 @dataclass
 class PingResult:
     model: Model
@@ -44,6 +83,10 @@ class ScanState:
     ping_counts: dict[str, int] = field(default_factory=dict)
     success_counts: dict[str, int] = field(default_factory=dict)
     latency_sums: dict[str, float] = field(default_factory=dict)
+    # Verified-alive cache: model key → True (verified) or False (broken)
+    verified: dict[str, bool] = field(default_factory=dict)
+    # Per-provider rate limit tracker
+    throttle: ProviderThrottle = field(default_factory=ProviderThrottle)
 
     def record(self, key: str, success: bool, latency_ms: float | None):
         self.ping_counts[key] = self.ping_counts.get(key, 0) + 1
@@ -150,6 +193,72 @@ async def _ping_one(
         return PingResult(model=model, status="error", error_detail=str(e)[:100])
 
 
+VERIFY_PAYLOAD = {
+    "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+    "max_tokens": 5,
+    "temperature": 0,
+}
+
+
+async def _verify_one(
+    client: httpx.AsyncClient,
+    model: Model,
+    cfg: dict,
+    verify_prompt: str | None = None,
+) -> bool:
+    """Send a real prompt and check for non-empty content. Returns True if functional."""
+    api_key = get_api_key(cfg, model.provider)
+    if not api_key:
+        return False
+
+    url = _get_provider_url(model.provider, cfg)
+    if model.provider == "googleai":
+        url = f"{url}?key={api_key}"
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        if model.provider == "replicate":
+            headers["Authorization"] = f"Token {api_key}"
+        elif model.provider != "googleai":
+            headers["Authorization"] = f"Bearer {api_key}"
+
+    prompt_text = verify_prompt or "Reply with exactly: OK"
+    if model.provider == "replicate":
+        payload = {"input": {"prompt": prompt_text}, "version": model.model_id}
+    else:
+        payload = {
+            "model": model.model_id,
+            "messages": [{"role": "user", "content": prompt_text}],
+            "max_tokens": 5,
+            "temperature": 0,
+        }
+
+    try:
+        resp = await client.post(url, json=payload, headers=headers, timeout=TIMEOUT_SECONDS)
+        if resp.status_code not in (200, 201):
+            return False
+
+        data = resp.json()
+        if model.provider == "replicate":
+            output = data.get("output", [])
+            content = "".join(output) if isinstance(output, list) else str(output)
+        else:
+            choices = data.get("choices", [])
+            if not choices:
+                return False
+            msg = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+            content = msg.get("content", "") or ""
+            if isinstance(content, list):
+                content = "".join(
+                    p.get("text", "") for p in content if isinstance(p, dict)
+                )
+
+        # Non-empty, non-whitespace content = functionally alive
+        return bool(content and content.strip())
+    except Exception:
+        return False
+
+
 async def scan_models(
     tier: str | None = None,
     provider: str | None = None,
@@ -158,6 +267,8 @@ async def scan_models(
     free_only: bool = False,
     limit: int = 0,
     state: ScanState | None = None,
+    verify: bool = False,
+    verify_prompt: str | None = None,
 ) -> list[PingResult]:
     """
     Ping models in parallel and return results sorted by latency.
@@ -191,9 +302,42 @@ async def scan_models(
             key = _model_key(r.model)
             state.record(key, r.status == "up", r.latency_ms)
 
+    # Verified-alive: send a real prompt to models marked "up" and check for content
+    if verify:
+        up_results = [r for r in results if r.status == "up"]
+        if up_results:
+            async with httpx.AsyncClient() as verify_client:
+                verify_tasks = []
+                for r in up_results:
+                    key = _model_key(r.model)
+                    # Use cache if available
+                    if state and key in state.verified:
+                        continue
+                    verify_tasks.append((r, _verify_one(verify_client, r.model, cfg, verify_prompt)))
+
+                if verify_tasks:
+                    verify_results = await asyncio.gather(
+                        *(t for _, t in verify_tasks)
+                    )
+                    for (r, _), is_alive in zip(verify_tasks, verify_results):
+                        key = _model_key(r.model)
+                        if not is_alive:
+                            r.status = "broken"
+                            r.error_detail = "verified_empty_response"
+                        if state:
+                            state.verified[key] = is_alive
+
+            # Apply cached verification results
+            if state:
+                for r in up_results:
+                    key = _model_key(r.model)
+                    if key in state.verified and not state.verified[key]:
+                        r.status = "broken"
+                        r.error_detail = "verified_empty_response"
+
     # Sort: up models by latency first, then others
     def sort_key(r: PingResult):
-        status_order = {"up": 0, "no_key": 1, "overloaded": 2, "timeout": 3, "error": 4, "not_found": 5}
+        status_order = {"up": 0, "no_key": 1, "overloaded": 2, "broken": 3, "timeout": 4, "error": 5, "not_found": 6}
         return (
             status_order.get(r.status, 9),
             r.latency_ms if r.latency_ms is not None else 999999,
@@ -216,6 +360,7 @@ def format_result(r: PingResult, state: ScanState | None = None) -> dict:
         "no_key": "NO_KEY",
         "timeout": "TIMEOUT",
         "overloaded": "OVERLOADED",
+        "broken": "BROKEN",
         "not_found": "NOT_FOUND",
         "error": "ERROR",
     }
