@@ -23,6 +23,7 @@ from .providers import PROVIDERS, Model
 from .quality import get_model_quality
 from .runner import _call_model
 from .scanner import ScanState, scan_models
+from .text_utils import strip_think_tags
 
 
 def _build_judge_system_prompt(
@@ -207,6 +208,8 @@ async def _call_judge_with_retry(
             return {"error": result["error"], "model": model, "raw": result}
 
         content = result.get("content", "")
+        # Strip think tags (Qwen3 etc.) before parsing structured output
+        content, _thinking = strip_think_tags(content)
         if not content:
             if attempt < max_retries:
                 continue
@@ -700,19 +703,6 @@ async def batch_judge_items(
 
     Processes items with bounded concurrency. Returns results incrementally
     so partial progress is available even if interrupted.
-
-    Args:
-        items: List of dicts with "prompt" key (and optional "metadata")
-        rubric: List of dimension names
-        scale: Rating scale
-        judge_count: Judges per item
-        min_tier: Minimum quality tier for judge selection
-        free_only: Only use free models
-        output_format: "csv" or "json"
-        concurrency: Max items evaluated in parallel
-        max_tokens: Max response tokens per judge
-        temperature: Sampling temperature
-        state: Shared scan state
 
     Args:
         items: List of dicts with "prompt" key (and optional "metadata")

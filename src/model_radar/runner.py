@@ -17,6 +17,7 @@ import httpx
 from .config import get_api_key, load_config
 from .providers import PROVIDERS, Model
 from .scanner import ProviderThrottle, ScanState, scan_models
+from .text_utils import strip_think_tags
 
 # Module-level throttle instance shared across all calls
 _throttle = ProviderThrottle()
@@ -135,6 +136,9 @@ async def _call_model(
                     elif isinstance(part, str):
                         content += part
 
+    # Strip think tags (Qwen3, etc.) — extract reasoning and return clean content
+    content, think_content = strip_think_tags(content)
+
     # Expose full raw API response body for debugging
     raw_response = data if resp.status_code in (200, 201) else None
 
@@ -152,6 +156,8 @@ async def _call_model(
             "total_tokens": usage.get("total_tokens"),
         },
     }
+    if think_content:
+        out["think_content"] = think_content
     if raw_response is not None:
         out["raw_response"] = raw_response
     return out
@@ -307,7 +313,13 @@ async def batch_run(
         if not up_models:
             return {"error": "No models available. Check API keys with list_providers()."}
         primary_model = up_models[0]
-        fallback_models = up_models[1:4] if retry_on_fail else []
+        if retry_on_fail:
+            # Prefer fallback models from different providers for resilience
+            diff_provider = [m for m in up_models[1:] if m.provider != primary_model.provider]
+            same_provider = [m for m in up_models[1:] if m.provider == primary_model.provider]
+            fallback_models = (diff_provider + same_provider)[:4]
+        else:
+            fallback_models = []
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -415,6 +427,14 @@ async def batch_run(
     failed = sum(1 for r in results if "error" in r)
     skipped = sum(1 for r in results if r.get("skipped"))
 
+    # Aggregate token usage across all results
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    for r in results:
+        usage = r.get("usage") or {}
+        total_prompt_tokens += usage.get("prompt_tokens") or 0
+        total_completion_tokens += usage.get("completion_tokens") or 0
+
     summary = {
         "total": len(prompts),
         "succeeded": succeeded,
@@ -423,6 +443,11 @@ async def batch_run(
         "primary_model": primary_model.model_id,
         "primary_model_label": primary_model.label,
         "primary_provider": PROVIDERS[primary_model.provider].name,
+        "usage": {
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_tokens": total_prompt_tokens + total_completion_tokens,
+        },
     }
     if results_file:
         summary["results_file"] = results_file
