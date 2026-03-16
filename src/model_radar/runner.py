@@ -7,6 +7,8 @@ a chat/completions request, returning the full response.
 
 from __future__ import annotations
 
+import asyncio
+import json as _json
 import os
 import time
 
@@ -14,7 +16,10 @@ import httpx
 
 from .config import get_api_key, load_config
 from .providers import PROVIDERS, Model
-from .scanner import ScanState, scan_models
+from .scanner import ProviderThrottle, ScanState, scan_models
+
+# Module-level throttle instance shared across all calls
+_throttle = ProviderThrottle()
 
 
 async def _call_model(
@@ -23,11 +28,18 @@ async def _call_model(
     cfg: dict,
     max_tokens: int = 4096,
     temperature: float = 0.0,
+    throttle: ProviderThrottle | None = None,
 ) -> dict:
     """Send a chat/completions request to a model and return the response."""
     api_key = get_api_key(cfg, model.provider)
     if not api_key:
         return {"error": f"No API key for provider {model.provider}"}
+
+    # Adaptive rate limiting
+    _thr = throttle or _throttle
+    delay = _thr.should_throttle(model.provider)
+    if delay > 0:
+        await asyncio.sleep(delay)
 
     prov = PROVIDERS[model.provider]
     url = prov.url
@@ -69,6 +81,8 @@ async def _call_model(
         elapsed_ms = (time.monotonic() - start) * 1000
 
     if resp.status_code not in (200, 201):
+        if resp.status_code == 429:
+            _thr.record_429(model.provider)
         return {
             "error": f"HTTP {resp.status_code}",
             "detail": resp.text[:500],
@@ -76,6 +90,7 @@ async def _call_model(
             "provider": prov.name,
         }
 
+    _thr.record_success(model.provider)
     data = resp.json()
     usage = data.get("usage", {})
 
@@ -230,3 +245,186 @@ async def run_on_fastest(
                  + ", ".join(r["model_label"] for r in retries),
         "retries": retries,
     }
+
+
+async def batch_run(
+    prompts: list[dict],
+    system_prompt: str | None = None,
+    model_id: str | None = None,
+    provider: str | None = None,
+    min_tier: str = "A",
+    free_only: bool = False,
+    max_tokens: int = 4096,
+    temperature: float = 0.0,
+    concurrency: int = 5,
+    retry_on_fail: bool = True,
+    results_file: str | None = None,
+    state: ScanState | None = None,
+) -> dict:
+    """Run multiple prompts with bounded concurrency and optional auto-retry.
+
+    Each prompt dict should have a "prompt" key and optional "system_prompt"
+    and "metadata" keys.  When model_id is not specified, scans for the
+    fastest model first and uses it for all items; failed items are retried
+    on alternate models when retry_on_fail is True.
+
+    Args:
+        prompts: List of {"prompt": "...", "system_prompt": "...", "metadata": {...}}
+        system_prompt: Default system prompt (per-item system_prompt overrides)
+        model_id: Specific model to use for all items
+        provider: Limit to a specific provider
+        min_tier: Minimum quality tier when auto-selecting
+        free_only: Only use free models
+        max_tokens: Max response tokens per item
+        temperature: Sampling temperature
+        concurrency: Max parallel requests
+        retry_on_fail: Auto-retry failed items on alternate models
+        results_file: Optional path to a JSONL file for incremental writes
+        state: Shared scan state
+
+    Returns:
+        Dict with results array, summary counts, and model info.
+    """
+    if not prompts:
+        return {"error": "prompts list is empty"}
+
+    cfg = load_config()
+
+    # Resolve target model(s)
+    if model_id:
+        target = _find_model(model_id, provider)
+        if not target:
+            return {"error": f"Model '{model_id}' not found in registry"}
+        primary_model = target
+        fallback_models: list[Model] = []
+    else:
+        scan_results = await scan_models(
+            min_tier=min_tier, provider=provider,
+            configured_only=True, free_only=free_only,
+            limit=concurrency + 5, state=state,
+        )
+        up_models = [r.model for r in scan_results if r.status == "up"]
+        if not up_models:
+            return {"error": "No models available. Check API keys with list_providers()."}
+        primary_model = up_models[0]
+        fallback_models = up_models[1:4] if retry_on_fail else []
+
+    semaphore = asyncio.Semaphore(concurrency)
+
+    # Resume support: load already-completed indices from results_file
+    completed_indices: set[int] = set()
+    if results_file:
+        try:
+            with open(results_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        entry = _json.loads(line)
+                        if "error" not in entry:
+                            completed_indices.add(entry.get("index", -1))
+        except FileNotFoundError:
+            pass
+
+    results: list[dict] = [{}] * len(prompts)
+
+    async def _run_one(idx: int, item: dict) -> dict:
+        async with semaphore:
+            prompt_text = item.get("prompt", "")
+            if not prompt_text:
+                return {"index": idx, "error": "missing prompt", "metadata": item.get("metadata")}
+
+            # Build messages
+            sys = item.get("system_prompt") or system_prompt
+            messages = []
+            if sys:
+                messages.append({"role": "system", "content": sys})
+            messages.append({"role": "user", "content": prompt_text})
+
+            # Try primary model
+            result = await _call_model(
+                model=primary_model, messages=messages, cfg=cfg,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            if "error" not in result:
+                return {
+                    "index": idx,
+                    "content": result.get("content", ""),
+                    "model_id": result.get("model_id"),
+                    "model_label": result.get("model_label"),
+                    "provider": result.get("provider"),
+                    "latency_ms": result.get("latency_ms"),
+                    "usage": result.get("usage"),
+                    "metadata": item.get("metadata"),
+                }
+
+            # Retry on fallbacks
+            if retry_on_fail:
+                for fb in fallback_models:
+                    fb_result = await _call_model(
+                        model=fb, messages=messages, cfg=cfg,
+                        max_tokens=max_tokens, temperature=temperature,
+                    )
+                    if "error" not in fb_result:
+                        return {
+                            "index": idx,
+                            "content": fb_result.get("content", ""),
+                            "model_id": fb_result.get("model_id"),
+                            "model_label": fb_result.get("model_label"),
+                            "provider": fb_result.get("provider"),
+                            "latency_ms": fb_result.get("latency_ms"),
+                            "usage": fb_result.get("usage"),
+                            "metadata": item.get("metadata"),
+                            "retried": True,
+                        }
+
+            return {
+                "index": idx,
+                "error": result.get("error", "unknown"),
+                "model_id": primary_model.model_id,
+                "metadata": item.get("metadata"),
+            }
+
+    # Open results file for incremental writes if requested
+    results_fh = None
+    if results_file:
+        results_fh = open(results_file, "a")
+
+    try:
+        tasks = []
+        for i, item in enumerate(prompts):
+            if i in completed_indices:
+                # Already completed in a previous run — skip
+                results[i] = {"index": i, "skipped": True, "metadata": item.get("metadata")}
+                continue
+            tasks.append(_run_one(i, item))
+
+        completed = await asyncio.gather(*tasks)
+
+        for r in completed:
+            idx = r["index"]
+            results[idx] = r
+            if results_fh:
+                results_fh.write(_json.dumps(r) + "\n")
+                results_fh.flush()
+    finally:
+        if results_fh:
+            results_fh.close()
+
+    # Summary
+    succeeded = sum(1 for r in results if r.get("content") is not None and "error" not in r)
+    failed = sum(1 for r in results if "error" in r)
+    skipped = sum(1 for r in results if r.get("skipped"))
+
+    summary = {
+        "total": len(prompts),
+        "succeeded": succeeded,
+        "failed": failed,
+        "skipped": skipped,
+        "primary_model": primary_model.model_id,
+        "primary_model_label": primary_model.label,
+        "primary_provider": PROVIDERS[primary_model.provider].name,
+    }
+    if results_file:
+        summary["results_file"] = results_file
+
+    return {"summary": summary, "results": results}
