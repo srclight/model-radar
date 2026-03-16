@@ -48,6 +48,8 @@ multiple models, and benchmark quality — all through MCP tools.
 - "Refresh the model list from the internet" → refresh_models()
 - "Run these prompts in batch" → batch_run(prompts=[{"prompt": "..."}, ...])
 - "Check which models actually work" → scan(verify=True) or get_fastest(verified=True)
+- "Give me N models from different providers" → get_workers(count=N, verified=True)
+- "Evaluate this translation" → backtranslate_eval(text, translation, source_lang, target_lang)
 
 ## Tool guide — Discovery
 - list_providers() — See all 21 providers and which have API keys. Call first when unsure.
@@ -77,6 +79,14 @@ multiple models, and benchmark quality — all through MCP tools.
 - batch_judge(items, rubric, scale?, judge_count?, concurrency?, results_file?) — Run evaluations at scale. \
   Processes items with bounded concurrency and returns summary statistics. \
   Set results_file for incremental JSONL output and automatic resume on interruption.
+
+## Tool guide — Pipeline utilities
+- get_workers(count?, min_tier?, free_only?, verified?) — Get N verified-alive models across N distinct providers, \
+  tier >= min_tier, ranked by latency. The single most common call pattern for translation pipelines. \
+  Returns model_ids ready to use with run() or batch_run().
+- backtranslate_eval(text, translation, source_lang, target_lang, back_model_id?) — \
+  Translate back to source language using a different model, compute gloss overlap. \
+  The most powerful non-circular quality metric for translation: translate→back-translate→overlap.
 
 ## Tool guide — Quality & Setup
 - refresh_models(provider?, run_ping?, ping_limit?) — Fetch latest model lists from APIs; \
@@ -736,6 +746,116 @@ async def batch_judge(
         temperature=temperature,
         state=_state,
         results_file=results_file,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_workers(
+    count: int = 5,
+    min_tier: str = "A",
+    free_only: bool = False,
+    verified: bool = True,
+) -> str:
+    """Get N verified-alive models across N distinct providers, ranked by tier then latency.
+
+    The single most common pattern for translation pipelines and batch evaluation:
+    "give me N working models from N different providers". Returns model_ids ready
+    to use with run(model_id=...) or batch_run(model_id=...).
+
+    Provider diversity is enforced: at most 1 model per provider. Models are verified
+    alive by default (sends a real prompt to confirm non-empty output).
+
+    Args:
+        count: Number of workers to return (default 5)
+        min_tier: Minimum quality tier (default "A")
+        free_only: Only include free models (default false)
+        verified: Verify models produce non-empty output (default true)
+    """
+    # Scan more models than needed to have room after provider dedup
+    results = await scan_models(
+        min_tier=min_tier, configured_only=True, free_only=free_only,
+        limit=count * 4, state=_state, verify=verified,
+    )
+    up_results = [r for r in results if r.status == "up"]
+
+    # Enforce provider diversity: 1 model per provider, best first
+    seen_providers: set[str] = set()
+    workers = []
+    for r in up_results:
+        if r.model.provider in seen_providers:
+            continue
+        # Skip providers with recent rate limit issues
+        if _state.throttle.is_degraded(r.model.provider):
+            continue
+        seen_providers.add(r.model.provider)
+        workers.append(format_result(r, _state))
+        if len(workers) >= count:
+            break
+
+    # If we couldn't fill from distinct providers (after excluding degraded),
+    # relax degraded filter
+    if len(workers) < count:
+        for r in up_results:
+            if r.model.provider in seen_providers:
+                continue
+            seen_providers.add(r.model.provider)
+            workers.append(format_result(r, _state))
+            if len(workers) >= count:
+                break
+
+    return json.dumps({
+        "count": len(workers),
+        "distinct_providers": len(seen_providers),
+        "verified": verified,
+        "workers": workers,
+        "usage": "Pass model_id and provider_key to run() or batch_run().",
+    }, indent=2)
+
+
+@mcp.tool()
+async def backtranslate_eval(
+    text: str,
+    translation: str,
+    source_lang: str,
+    target_lang: str,
+    back_model_id: str | None = None,
+    min_tier: str = "A",
+    free_only: bool = False,
+    max_tokens: int = 512,
+) -> str:
+    """Evaluate a translation via back-translation and gloss overlap.
+
+    Translates the output back to the source language using a different model,
+    then computes word-level gloss overlap with the original text. This is the
+    most powerful non-circular quality metric for translation:
+    original → translate → back-translate → overlap.
+
+    Returns the back-translation, overlap score (0.0-1.0), matching/missing/extra
+    glosses, and the model used for back-translation.
+
+    Args:
+        text: Original source-language text (e.g. "father, head of household")
+        translation: The translated text to evaluate (e.g. "Vater, Haupt eines Haushalts")
+        source_lang: Source language name (e.g. "English")
+        target_lang: Target language name (e.g. "German")
+        back_model_id: Specific model for back-translation (default: auto-select different model)
+        min_tier: Minimum quality tier for auto-selection (default "A")
+        free_only: Only use free models (default false)
+        max_tokens: Max response tokens (default 512)
+    """
+    from .runner import backtranslate_eval as _backtranslate
+
+    result = await _backtranslate(
+        text=text,
+        translation=translation,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        back_model_id=back_model_id,
+        min_tier=min_tier,
+        free_only=free_only,
+        max_tokens=max_tokens,
+        state=_state,
     )
     return json.dumps(result, indent=2)
 

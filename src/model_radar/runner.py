@@ -17,6 +17,7 @@ import httpx
 from .config import get_api_key, load_config
 from .providers import PROVIDERS, Model
 from .scanner import ProviderThrottle, ScanState, scan_models
+from .text_utils import strip_think_tags
 
 # Module-level throttle instance shared across all calls
 _throttle = ProviderThrottle()
@@ -135,6 +136,9 @@ async def _call_model(
                     elif isinstance(part, str):
                         content += part
 
+    # Strip think tags (Qwen3, etc.) — extract reasoning and return clean content
+    content, think_content = strip_think_tags(content)
+
     # Expose full raw API response body for debugging
     raw_response = data if resp.status_code in (200, 201) else None
 
@@ -152,6 +156,8 @@ async def _call_model(
             "total_tokens": usage.get("total_tokens"),
         },
     }
+    if think_content:
+        out["think_content"] = think_content
     if raw_response is not None:
         out["raw_response"] = raw_response
     return out
@@ -307,9 +313,18 @@ async def batch_run(
         if not up_models:
             return {"error": "No models available. Check API keys with list_providers()."}
         primary_model = up_models[0]
-        fallback_models = up_models[1:4] if retry_on_fail else []
+        if retry_on_fail:
+            # Prefer fallback models from different providers for resilience
+            diff_provider = [m for m in up_models[1:] if m.provider != primary_model.provider]
+            same_provider = [m for m in up_models[1:] if m.provider == primary_model.provider]
+            fallback_models = (diff_provider + same_provider)[:4]
+        else:
+            fallback_models = []
 
-    semaphore = asyncio.Semaphore(concurrency)
+    # Adaptive concurrency: use throttle's recommendation if lower than requested
+    effective = _throttle.effective_concurrency(primary_model.provider)
+    actual_concurrency = min(concurrency, effective)
+    semaphore = asyncio.Semaphore(actual_concurrency)
 
     # Resume support: load already-completed indices from results_file
     completed_indices: set[int] = set()
@@ -415,6 +430,14 @@ async def batch_run(
     failed = sum(1 for r in results if "error" in r)
     skipped = sum(1 for r in results if r.get("skipped"))
 
+    # Aggregate token usage across all results
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    for r in results:
+        usage = r.get("usage") or {}
+        total_prompt_tokens += usage.get("prompt_tokens") or 0
+        total_completion_tokens += usage.get("completion_tokens") or 0
+
     summary = {
         "total": len(prompts),
         "succeeded": succeeded,
@@ -423,8 +446,86 @@ async def batch_run(
         "primary_model": primary_model.model_id,
         "primary_model_label": primary_model.label,
         "primary_provider": PROVIDERS[primary_model.provider].name,
+        "usage": {
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_tokens": total_prompt_tokens + total_completion_tokens,
+        },
     }
     if results_file:
         summary["results_file"] = results_file
 
     return {"summary": summary, "results": results}
+
+
+async def backtranslate_eval(
+    text: str,
+    translation: str,
+    source_lang: str,
+    target_lang: str,
+    back_model_id: str | None = None,
+    min_tier: str = "A",
+    free_only: bool = False,
+    max_tokens: int = 512,
+    state: ScanState | None = None,
+) -> dict:
+    """Translate back to source language and compute gloss overlap.
+
+    Uses a different model than the forward translator (if possible) to avoid
+    circular agreement. Returns the back-translation, overlap score, and
+    matching/missing glosses.
+    """
+    cfg = load_config()
+
+    # Build back-translation prompt
+    prompt = (
+        f"Translate the following {target_lang} text back to {source_lang}. "
+        f"Output ONLY the translation, nothing else.\n\n{translation}"
+    )
+    messages = [{"role": "user", "content": prompt}]
+
+    if back_model_id:
+        target = _find_model(back_model_id)
+        if not target:
+            return {"error": f"Model '{back_model_id}' not found"}
+        result = await _call_model(model=target, messages=messages, cfg=cfg,
+                                   max_tokens=max_tokens, temperature=0.0)
+    else:
+        result = await run_on_fastest(
+            prompt=prompt, min_tier=min_tier, free_only=free_only,
+            max_tokens=max_tokens, temperature=0.0, state=state,
+        )
+
+    if "error" in result:
+        return result
+
+    back_translation = result.get("content", "").strip()
+
+    # Compute gloss overlap — split into words, compare sets
+    original_glosses = set(text.lower().split())
+    back_glosses = set(back_translation.lower().split())
+
+    # Remove common stop words for cleaner overlap
+    stop_words = {"a", "an", "the", "of", "to", "in", "for", "and", "or", "is", "it", "by", "on"}
+    original_glosses -= stop_words
+    back_glosses -= stop_words
+
+    if not original_glosses:
+        overlap = 1.0 if not back_glosses else 0.0
+    else:
+        matching = original_glosses & back_glosses
+        overlap = len(matching) / len(original_glosses)
+
+    return {
+        "original": text,
+        "translation": translation,
+        "back_translation": back_translation,
+        "gloss_overlap": round(overlap, 4),
+        "matching_glosses": sorted(original_glosses & back_glosses),
+        "missing_glosses": sorted(original_glosses - back_glosses),
+        "extra_glosses": sorted(back_glosses - original_glosses),
+        "model_id": result.get("model_id"),
+        "model_label": result.get("model_label"),
+        "provider": result.get("provider"),
+        "latency_ms": result.get("latency_ms"),
+    }
