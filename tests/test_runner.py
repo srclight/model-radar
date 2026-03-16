@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from model_radar.providers import Model
-from model_radar.runner import _call_model, _find_model, run_on_fastest
+from model_radar.runner import _call_model, _find_model, backtranslate_eval, run_on_fastest
 from model_radar.scanner import PingResult
 
 
@@ -154,3 +154,30 @@ async def test_fallback_all_fail():
     assert "error" in result
     assert "retries" in result
     assert len(result["retries"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_backtranslate_eval_computes_overlap():
+    """Should compute gloss overlap between original and back-translation."""
+    async def mock_run(*args, **kwargs):
+        return {
+            "content": "father, head of a household",
+            "model_id": "test/model",
+            "model_label": "Test Model",
+            "provider": "NIM",
+            "latency_ms": 200.0,
+        }
+
+    with patch("model_radar.runner.run_on_fastest", side_effect=mock_run):
+        result = await backtranslate_eval(
+            text="father, head of household",
+            translation="Vater, Haupt eines Haushalts",
+            source_lang="English",
+            target_lang="German",
+        )
+
+    assert "error" not in result
+    assert result["gloss_overlap"] > 0.5
+    assert "father," in result["matching_glosses"] or "father" in str(result["matching_glosses"])
+    assert result["back_translation"] == "father, head of a household"
+    assert result["model_id"] == "test/model"

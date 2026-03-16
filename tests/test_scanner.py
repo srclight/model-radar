@@ -60,3 +60,46 @@ def test_format_result_with_state():
 
 
 import pytest
+
+
+# --- ProviderThrottle tests ---
+
+from model_radar.scanner import ProviderThrottle
+
+
+def test_throttle_no_429s():
+    t = ProviderThrottle()
+    assert t.should_throttle("groq") == 0.0
+    assert t.effective_concurrency("groq") == 5
+    assert t.is_degraded("groq") is False
+
+
+def test_throttle_records_429_and_backs_off():
+    t = ProviderThrottle()
+    t.record_429("groq")
+    assert t.should_throttle("groq") >= 1.0
+    assert t.effective_concurrency("groq") < 5
+    assert t.is_degraded("groq") is False  # needs 2+
+
+    t.record_429("groq")
+    assert t.is_degraded("groq") is True
+    assert t.effective_concurrency("groq") == 1
+
+
+def test_throttle_recovers_on_success():
+    t = ProviderThrottle()
+    t.record_429("groq")
+    t.record_429("groq")
+    assert t.effective_concurrency("groq") == 1
+
+    # 10 successes should start recovery
+    for _ in range(12):
+        t.record_success("groq")
+    assert t.effective_concurrency("groq") > 1
+
+
+def test_throttle_global_concurrency():
+    t = ProviderThrottle()
+    assert t.effective_concurrency() == 5
+    t.record_429("groq")
+    assert t.effective_concurrency() < 5
