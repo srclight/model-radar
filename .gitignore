@@ -10,8 +10,9 @@ build/
 # API keys — never commit the real config
 config.json
 
-# CLAUDE.md is private — keep canonical copy in private notes only
-CLAUDE.md
+# Environment files
+.env
+.env.*
 
 # Cursor rules are private — golden copy in private notes, symlink in repo
 .cursor/rules
