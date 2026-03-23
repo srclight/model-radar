@@ -88,16 +88,28 @@ multiple models, and benchmark quality — all through MCP tools.
   Translate back to source language using a different model, compute gloss overlap. \
   The most powerful non-circular quality metric for translation: translate→back-translate→overlap.
 
-## Tool guide — Quality & Setup
-- refresh_models(provider?, run_ping?, ping_limit?) — Fetch latest model lists from APIs; \
-  use periodically so free/paid and model list stay current.
+## Tool guide — Quality & Setup (read-only)
 - benchmark(...) — Quality-test models; results show in later scan/get_fastest.
 - setup_guide(provider?) — Signup instructions for unconfigured providers.
-- configure_key(provider, api_key) — Save an API key.
-- setup_workflow(step, provider_selection?) — Step-by-step setup (Playwright, providers, keys).
 - host_swap_instructions(model_id?, provider?, min_tier?) — Where to set base_url + model_id on the host.
-- restart_server() — (SSE only) Exit so process manager can restart. Allowed by default; set MODEL_RADAR_ALLOW_RESTART=0 to disable.
 - server_stats() — Server start time and uptime.
+
+## Tool guide — Configuration (writes to local config/state)
+- configure_key(provider, api_key) — Save an API key to ~/.model-radar/config.json.
+- refresh_models(provider?, run_ping?, ping_limit?) — Fetch latest model lists from APIs; \
+  use periodically so free/paid and model list stay current.
+- setup_workflow(step, provider_selection?) — Step-by-step setup (Playwright, providers, keys).
+- restart_server() — (SSE only) Exit so process manager can restart. Allowed by default; set MODEL_RADAR_ALLOW_RESTART=0 to disable.
+
+## Setup workflow — agent-driven happy path
+New user? Walk them through setup in this order:
+1. `list_providers()` — see which providers already have keys
+2. `setup_guide()` — show signup instructions for all unconfigured providers
+3. For each provider the user wants: `configure_key(provider, api_key)` — save the key
+4. `refresh_models()` — fetch latest model lists from provider APIs
+5. `scan(verify=True)` — verify which models are actually alive and responding
+6. `get_fastest(min_tier="A", count=5)` — recommend the best models to start with
+7. `host_swap_instructions()` — show how to configure Cursor/IDE with the fastest model
 
 ## Tier scale (SWE-bench Verified)
 Better → worse: S+ (70%+) > S (60-70%) > A+ (50-60%) > A (40-50%) > A- (35-40%) > B+ (30-35%) > B (20-30%) > C (<20%). \
