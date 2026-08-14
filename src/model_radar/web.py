@@ -64,6 +64,18 @@ def _dashboard_html() -> str:
     <div id="statusOutput" class="loading">Click a button to load.</div>
   </section>
 
+  <section id="cliProvidersSection">
+    <h2>CLI providers (subscription)</h2>
+    <p style="color: var(--muted); margin: 0 0 0.5rem; font-size: 0.9rem;">
+      Ride your SuperGrok or Google Workspaces subscription via the official CLI tools.
+      Auto-detected from PATH. No API key needed.
+    </p>
+    <div class="flex">
+      <button type="button" id="btnRefresh">Refresh from live APIs</button>
+    </div>
+    <div id="cliProvidersTable" class="loading">Click "Refresh" to populate CLI providers.</div>
+  </section>
+
   <section>
     <h2>Config</h2>
     <div class="flex">
@@ -216,6 +228,29 @@ def _dashboard_html() -> str:
     };
     // Load server stats on page load
     document.getElementById('btnServerStats').click();
+    document.getElementById('btnRefresh').onclick = async () => {
+      set('cliProvidersTable', 'Refreshing...', false);
+      try {
+        const data = await api('/api/refresh', { method: 'POST' });
+        const providers = await api('/api/list_providers');
+        const cli = providers.providers.filter(p => p.kind === 'cli');
+        if (cli.length === 0) {
+          set('cliProvidersTable', 'No CLI providers detected. Install `grok` or `gemini` from PATH.', true);
+        } else {
+          const html = '<table><tr><th>Provider</th><th>Installed</th><th>Action</th></tr>' +
+            cli.map(p =>
+              `<tr><td>${p.provider}</td>` +
+              `<td><span class="status-dot ${p.installed ? 'status-up' : 'status-down'}"></span>` +
+              `${p.installed ? 'yes' : 'no'}</td>` +
+              `<td>${p.installed ? '✓' : 'Install CLI: ' + p.key}</td></tr>`
+            ).join('') + '</table>';
+          document.getElementById('cliProvidersTable').innerHTML = html;
+          document.getElementById('cliProvidersTable').classList.remove('error');
+        }
+      } catch (err) {
+        set('cliProvidersTable', 'Error: ' + err.message, true);
+      }
+    };
   </script>
 </body>
 </html>
@@ -223,9 +258,26 @@ def _dashboard_html() -> str:
 
 
 async def _api_list_providers(_request: Request) -> Response:
-    from .server import list_providers
-    body = await list_providers()
-    return JSONResponse(json.loads(body))
+    """GET /api/list_providers — all providers with kind + installed status."""
+    from .providers import PROVIDERS
+    from .config import get_api_key, load_config
+    cfg = load_config()
+    out = []
+    for key, prov in PROVIDERS.items():
+        api_key = get_api_key(cfg, key) or ""
+        entry = {
+            "provider": prov.name,
+            "key": key,
+            "kind": getattr(prov, "kind", "https"),
+            "api_key": "configured" if api_key else "missing",
+            "enabled": cfg.get("providers", {}).get(key, {}).get("enabled", True),
+            "env_vars": list(prov.env_vars),
+        }
+        if entry["kind"] == "cli":
+            import shutil
+            entry["installed"] = bool(shutil.which(prov.cmd))
+        out.append(entry)
+    return JSONResponse({"providers": out, "total": len(out)})
 
 
 async def _api_list_models(request: Request) -> Response:
@@ -267,6 +319,20 @@ async def _api_provider_status(_request: Request) -> Response:
     from .server import provider_status
     body = await provider_status()
     return JSONResponse(json.loads(body))
+
+
+async def _api_refresh(_request: Request) -> Response:
+    """POST /api/refresh — trigger live model fetch."""
+    from .provider_sync import refresh_models_from_live
+    try:
+        counts = await refresh_models_from_live()
+        total = sum(counts.values()) if counts else 0
+        return JSONResponse({
+            "refreshed": total,
+            "by_provider": counts or {},
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 async def _api_setup_guide(request: Request) -> Response:
@@ -363,6 +429,7 @@ def add_web_routes(mcp: FastMCP) -> None:
     mcp.custom_route("/api/provider_status", ["GET"])(_api_provider_status)
     mcp.custom_route("/api/setup_guide", ["GET"])(_api_setup_guide)
     mcp.custom_route("/api/configure_key", ["POST"])(_api_configure_key)
+    mcp.custom_route("/api/refresh", ["POST"])(_api_refresh)
     mcp.custom_route("/api/run", ["POST"])(_api_run)
     mcp.custom_route("/api/ask", ["POST"])(_api_ask)
     mcp.custom_route("/api/restart_server", ["POST"])(_api_restart_server)
