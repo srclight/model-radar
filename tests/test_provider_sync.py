@@ -2,11 +2,16 @@
 Tests for provider_sync module - live model fetching from provider APIs.
 """
 
+import json
+from unittest.mock import patch
+
 import pytest
 from model_radar.provider_sync import (
     fetch_openrouter_models,
     fetch_nvidia_models,
     fetch_groq_models,
+    fetch_xai_models,
+    fetch_googleai_models,
     compare_models,
     ProviderModel,
 )
@@ -144,13 +149,76 @@ class TestFetchGroq:
         models = await fetch_groq_models(api_key=None)
         # Should return empty list without key
         assert isinstance(models, list)
-    
+
     @pytest.mark.asyncio
     async def test_fetch_with_invalid_key(self):
         """Test fetching Groq models with invalid key."""
         models = await fetch_groq_models(api_key="invalid-key")
         # Should return empty list on error
         assert isinstance(models, list)
+
+
+@pytest.mark.asyncio
+async def test_fetch_xai_models_with_api_key():
+    """fetch_xai_models parses a fake API response."""
+    fake_response = {
+        "data": [
+            {"id": "grok-4", "name": "Grok 4", "created": 1234567890},
+            {"id": "grok-3", "name": "Grok 3"},
+        ]
+    }
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, timeout=None):
+            class FakeResp:
+                def raise_for_status(self): pass
+                def json(self): return fake_response
+            return FakeResp()
+
+    with patch("httpx.AsyncClient", return_value=FakeClient()):
+        models = await fetch_xai_models(api_key="xai-test-key")
+
+    assert len(models) == 2
+    assert models[0].model_id == "grok-4"
+    assert models[0].provider == "xai"
+
+
+@pytest.mark.asyncio
+async def test_fetch_xai_models_no_api_key():
+    """fetch_xai_models returns empty list when no API key."""
+    models = await fetch_xai_models(api_key=None)
+    assert models == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_googleai_models_with_api_key():
+    """fetch_googleai_models parses a fake API response."""
+    fake_response = {
+        "models": [
+            {"name": "models/gemini-2.5-pro", "displayName": "Gemini 2.5 Pro",
+             "inputTokenLimit": 1000000},
+            {"name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash"},
+        ]
+    }
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, timeout=None):
+            class FakeResp:
+                def raise_for_status(self): pass
+                def json(self): return fake_response
+            return FakeResp()
+
+    with patch("httpx.AsyncClient", return_value=FakeClient()):
+        models = await fetch_googleai_models(api_key="googleai-test-key")
+
+    assert len(models) == 2
+    assert models[0].model_id == "gemini-2.5-pro"
+    assert models[0].provider == "googleai"
+    assert models[0].context_length == 1000000
 
 
 if __name__ == "__main__":

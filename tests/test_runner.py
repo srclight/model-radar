@@ -181,3 +181,55 @@ async def test_backtranslate_eval_computes_overlap():
     assert "father," in result["matching_glosses"] or "father" in str(result["matching_glosses"])
     assert result["back_translation"] == "father, head of a household"
     assert result["model_id"] == "test/model"
+
+
+@pytest.mark.asyncio
+async def test_call_model_dispatches_to_cli_provider():
+    """When provider is kind='cli', _call_model uses complete_cli_provider."""
+    from model_radar.providers import PROVIDERS
+
+    if "grok" in PROVIDERS:
+        PROVIDERS["grok"] = PROVIDERS["grok"].__class__(
+            key=PROVIDERS["grok"].key, name=PROVIDERS["grok"].name,
+            url=PROVIDERS["grok"].url, env_vars=PROVIDERS["grok"].env_vars,
+            models=PROVIDERS["grok"].models, kind="cli",
+            cmd="grok", cmd_args=(), prompt_via="arg", model_flag="-m",
+        )
+
+    model = _model(provider="grok", model_id="grok-4", label="Grok 4", tier="S+")
+    fake_content = "Hello from Grok!"
+    fake_result = {
+        "content": fake_content, "model_id": "grok-4", "model_label": "Grok 4",
+        "provider": "Grok (Subscription)", "provider_key": "grok",
+        "tier": "S+", "latency_ms": 100.0,
+        "usage": {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None},
+    }
+    with patch("model_radar.cli_provider.complete_cli_provider", return_value=fake_result) as mock:
+        result = await _call_model(
+            model=model, messages=[{"role": "user", "content": "hi"}], cfg={}
+        )
+    assert result["content"] == fake_content
+    mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_call_model_cli_provider_error_returns_error_dict():
+    """When CLI provider raises, _call_model returns error dict (not crash)."""
+    from model_radar.providers import PROVIDERS
+
+    if "grok" in PROVIDERS:
+        PROVIDERS["grok"] = PROVIDERS["grok"].__class__(
+            key=PROVIDERS["grok"].key, name=PROVIDERS["grok"].name,
+            url=PROVIDERS["grok"].url, env_vars=PROVIDERS["grok"].env_vars,
+            models=PROVIDERS["grok"].models, kind="cli",
+            cmd="grok", cmd_args=(), prompt_via="arg", model_flag="-m",
+        )
+
+    model = _model(provider="grok", model_id="grok-4", label="Grok 4", tier="S+")
+    with patch("model_radar.cli_provider.complete_cli_provider",
+               side_effect=Exception("CLI not found")):
+        result = await _call_model(
+            model=model, messages=[{"role": "user", "content": "hi"}], cfg={}
+        )
+    assert "error" in result
+    assert "CLI not found" in result["error"]

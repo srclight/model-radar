@@ -171,6 +171,18 @@ async def _ping_one(
 ) -> PingResult:
     """Ping a single model endpoint and return the result."""
     api_key = get_api_key(cfg, model.provider)
+
+    # CLI provider (subprocess) — not HTTP
+    from .providers import PROVIDERS as _PROVIDERS
+    prov = _PROVIDERS.get(model.provider)
+    if prov and prov.kind == "cli":
+        from .cli_provider import ping_cli_provider
+        ok, latency_ms = await ping_cli_provider(prov)
+        if ok:
+            return PingResult(model=model, status="up", latency_ms=latency_ms)
+        return PingResult(model=model, status="error", latency_ms=latency_ms,
+                          error_detail="cli_unavailable")
+
     url = _get_provider_url(model.provider, cfg)
 
     # Replicate uses a different API format

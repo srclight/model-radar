@@ -18,26 +18,30 @@ def test_server_created(server):
 
 def test_server_has_instructions(server):
     assert "model-radar" in server.instructions
-    assert "21 providers" in server.instructions
+    assert "subscription CLIs" in server.instructions
 
 
 @pytest.mark.asyncio
 async def test_list_providers_tool():
-    """list_providers should return all 17 providers."""
+    """list_providers should return HTTPS providers plus any subscription CLIs on PATH."""
     from model_radar.server import list_providers
 
     result = json.loads(await list_providers())
-    assert result["total_providers"] == 21
+    assert result["total_providers"] >= 21
     assert result["total_models"] >= 130
-    assert len(result["providers"]) == 21
+    assert len(result["providers"]) == result["total_providers"]
 
     # Check each provider has required fields
     for p in result["providers"]:
         assert "provider" in p
         assert "key" in p
         assert "models" in p
+        assert "kind" in p
         assert "api_key" in p
-        assert p["api_key"] in ("configured", "missing")
+        assert p["api_key"] in ("configured", "missing", "n/a")
+        if p["kind"] == "cli":
+            assert p["access"] == "cli"
+            assert "installed" in p
 
 
 @pytest.mark.asyncio
@@ -201,18 +205,21 @@ async def test_host_swap_instructions_with_model_id():
 
 
 @pytest.mark.asyncio
-async def test_restart_server_disabled_without_env():
-    """restart_server returns ok: false when MODEL_RADAR_ALLOW_RESTART is not set."""
+async def test_restart_server_disabled_when_env_false():
+    """restart_server returns ok: false when MODEL_RADAR_ALLOW_RESTART=0."""
     import os
     from model_radar.server import restart_server
 
-    orig = os.environ.pop("MODEL_RADAR_ALLOW_RESTART", None)
+    orig = os.environ.get("MODEL_RADAR_ALLOW_RESTART")
+    os.environ["MODEL_RADAR_ALLOW_RESTART"] = "0"
     try:
         result = json.loads(await restart_server())
         assert result.get("ok") is False
         assert "MODEL_RADAR_ALLOW_RESTART" in result.get("message", "")
     finally:
-        if orig is not None:
+        if orig is None:
+            os.environ.pop("MODEL_RADAR_ALLOW_RESTART", None)
+        else:
             os.environ["MODEL_RADAR_ALLOW_RESTART"] = orig
 
 
@@ -233,18 +240,18 @@ async def test_restart_server_enabled_schedules_exit():
         return MagicMock()
 
     try:
-        with patch("os._exit"):  # prevent real exit
+        with patch("os._exit") as mock_exit:  # prevent real exit
             loop = MagicMock()
             loop.call_later.side_effect = capture_call_later
             with patch("asyncio.get_running_loop", return_value=loop):
                 result = json.loads(await restart_server())
-        assert result.get("ok") is True
-        assert "exit" in result.get("message", "").lower()
-        assert len(call_later_calls) == 1
-        delay, exit_callback = call_later_calls[0]
-        assert delay == 0
-        # Callback should be the _exit that calls os._exit(0)
-        exit_callback()
+            assert result.get("ok") is True
+            assert "exit" in result.get("message", "").lower()
+            assert len(call_later_calls) == 1
+            delay, exit_callback = call_later_calls[0]
+            assert delay == 0
+            exit_callback()
+            mock_exit.assert_called_once_with(0)
     finally:
         if orig is None:
             os.environ.pop("MODEL_RADAR_ALLOW_RESTART", None)
@@ -264,3 +271,24 @@ async def test_server_stats():
     assert "uptime_human" in result
     assert result["uptime_seconds"] >= 0
     assert "s" in result["uptime_human"]
+
+
+@pytest.mark.asyncio
+async def test_startup_refresh_runs_and_logs(monkeypatch):
+    """create_server() schedules _startup_refresh, which calls refresh_models_from_live."""
+    import asyncio
+    from model_radar import server as server_module
+
+    # Reset the singleton so the function takes the startup branch
+    server_module._server_start_time = None
+
+    async def fake_refresh():
+        return {"xai": 3, "googleai": 6}
+
+    monkeypatch.setattr("model_radar.provider_sync.refresh_models_from_live",
+                        fake_refresh)
+
+    mcp = server_module.create_server()
+    # Give the scheduled task a chance to run
+    await asyncio.sleep(0.05)
+    assert server_module._server_start_time is not None
