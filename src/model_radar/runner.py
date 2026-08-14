@@ -100,7 +100,8 @@ async def _call_model(
 
     start = time.monotonic()
     async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=payload, headers=headers, timeout=120.0)
+        timeout = 300.0 if model.provider == "ollama" else 120.0
+        resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
         elapsed_ms = (time.monotonic() - start) * 1000
 
     if resp.status_code not in (200, 201):

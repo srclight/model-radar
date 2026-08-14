@@ -409,13 +409,13 @@ _p("sealion", "SEA-LION", "https://api.sea-lion.ai/v1/chat/completions",
     ("aisingapore/Llama-SEA-LION-v3.5-70B-R", "Llama SEA-LION v3.5 70B R", "A-", "35.0%", "128k"),
 ))
 
-# --- Ollama (local) ---
-_p("ollama", "Ollama", "http://localhost:11434/v1/chat/completions",
+# --- Ollama (local, no key) ---
+# Seed is replaced at import if localhost:11434 answers /api/tags.
+_p("ollama", "Ollama", "http://127.0.0.1:11434/v1/chat/completions",
    ("OLLAMA_API_KEY",), (
-    ("qwen3.5:35b-a3b", "Qwen3.5 35B MoE", "A+", "50.0%", "128k"),
-    ("qwen3.5:9b", "Qwen3.5 9B", "A-", "35.0%", "128k"),
-    ("gpt-oss:20b", "GPT OSS 20B", "A", "42.0%", "128k"),
-    ("glm-4.7-flash:latest", "GLM 4.7 Flash", "A+", "50.0%", "200k"),
+    ("gemma3:27b", "Gemma 3 27B (local)", "B", "22.0%", "128k"),
+    ("mistral-small3.2:24b", "Mistral Small 3.2 24B (local)", "B+", "30.0%", "128k"),
+    ("mistral-small:22b", "Mistral Small 22B (local)", "B+", "30.0%", "128k"),
 ))
 
 # --- Perplexity ---
@@ -431,6 +431,36 @@ _p("perplexity", "Perplexity", "https://api.perplexity.ai/chat/completions",
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def is_ollama_embedding(name: str) -> bool:
+    """True if an Ollama tag is an embedding model, not a chat model."""
+    lower = (name or "").lower()
+    return any(tok in lower for tok in ("embed", "bge-", "e5-", "minilm", "nomic-embed"))
+
+
+def refresh_ollama_catalog_from_daemon(timeout: float = 1.5) -> int:
+    """Replace the ollama seed with whatever /api/tags reports. Returns model count."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=timeout) as resp:
+            data = json.load(resp)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return 0
+    rows = []
+    for item in data.get("models") or []:
+        mid = item.get("name") or item.get("model") or ""
+        if not mid or is_ollama_embedding(mid):
+            continue
+        rows.append((mid, mid, "A", "", "128k"))
+    if not rows:
+        return 0
+    _p("ollama", "Ollama", "http://127.0.0.1:11434/v1/chat/completions",
+       ("OLLAMA_API_KEY",), tuple(rows))
+    return len(rows)
+
 
 def _model_id_suggests_free(model_id: str) -> bool | None:
     """Return True if model_id suggests free tier, False if paid, None if unknown."""
@@ -459,6 +489,8 @@ def get_all_models() -> list[Model]:
             is_free = _model_id_suggests_free(model_id)
             if is_free is None and getattr(prov, "kind", "https") == "cli":
                 is_free = True  # subscription CLI = free to the user
+            if is_free is None and pkey == "ollama":
+                is_free = True  # local Ollama = free to the user
             models.append(Model(
                 model_id=model_id, label=label, tier=tier,
                 swe_score=swe, context=ctx, provider=pkey,
@@ -495,4 +527,9 @@ try:
     _register_cli_providers()
 except Exception:
     # CLI providers are optional; don't crash static imports.
+    pass
+
+try:
+    refresh_ollama_catalog_from_daemon()
+except Exception:
     pass

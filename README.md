@@ -130,7 +130,7 @@ model-radar configure nvidia nvapi-xxx
 | xAI | `XAI_API_KEY` | Free tier |
 | Inference.net | `INFERENCE_API_KEY` | Free tier |
 | SEA-LION | `SEALION_API_KEY` | Free tier |
-| Ollama | `OLLAMA_API_KEY` | Local, free |
+| Ollama | none (local daemon) | Free — uses models already pulled on `127.0.0.1:11434` |
 
 ## CLI subscriptions
 

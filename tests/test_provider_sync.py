@@ -12,6 +12,7 @@ from model_radar.provider_sync import (
     fetch_groq_models,
     fetch_xai_models,
     fetch_googleai_models,
+    fetch_ollama_models,
     compare_models,
     ProviderModel,
 )
@@ -219,6 +220,48 @@ async def test_fetch_googleai_models_with_api_key():
     assert models[0].model_id == "gemini-2.5-pro"
     assert models[0].provider == "googleai"
     assert models[0].context_length == 1000000
+
+
+@pytest.mark.asyncio
+async def test_fetch_ollama_models_skips_embeddings():
+    """fetch_ollama_models keeps chat models and drops embedding tags."""
+    fake_response = {
+        "models": [
+            {"name": "gemma3:27b"},
+            {"name": "qwen3-embedding:4b"},
+            {"name": "mistral-small:22b"},
+        ]
+    }
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, timeout=None):
+            class FakeResp:
+                def raise_for_status(self): pass
+                def json(self): return fake_response
+            return FakeResp()
+
+    with patch("httpx.AsyncClient", return_value=FakeClient()):
+        models = await fetch_ollama_models()
+
+    ids = [m.model_id for m in models]
+    assert ids == ["gemma3:27b", "mistral-small:22b"]
+    assert all(m.provider == "ollama" for m in models)
+
+
+@pytest.mark.asyncio
+async def test_fetch_ollama_models_down_returns_empty():
+    """Unreachable daemon yields an empty list, not an exception."""
+    class BoomClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, timeout=None):
+            raise OSError("connection refused")
+
+    with patch("httpx.AsyncClient", return_value=BoomClient()):
+        models = await fetch_ollama_models()
+    assert models == []
 
 
 if __name__ == "__main__":

@@ -182,6 +182,21 @@ _GUIDES: dict[str, dict] = {
         "key_format": "sk-...",
         "priority": "LOW — useful for Chinese models like Qwen, DeepSeek.",
     },
+    "ollama": {
+        "name": "Ollama (local)",
+        "free_tier": "Runs on your machine. No API key. Pull models with `ollama pull`.",
+        "model_count_note": "Whatever you have pulled; embeddings are skipped.",
+        "signup_url": "https://ollama.com/download",
+        "steps": [
+            "Install Ollama from https://ollama.com/download (or your package manager).",
+            "Start the daemon so http://127.0.0.1:11434/api/tags answers.",
+            "Pull a chat model, e.g. `ollama pull gemma3:27b` or `ollama pull mistral-small`.",
+            "Restart model-radar. No configure_key needed.",
+        ],
+        "env_var": "OLLAMA_API_KEY",
+        "key_format": "none — local, optional dummy key",
+        "priority": "HIGH — free local models you already have pulled.",
+    },
     "xai": {
         "name": "xAI (API key)",
         "free_tier": "Pay-as-you-go Grok API. Prefer the grok CLI if you have SuperGrok.",
