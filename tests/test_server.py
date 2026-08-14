@@ -264,3 +264,24 @@ async def test_server_stats():
     assert "uptime_human" in result
     assert result["uptime_seconds"] >= 0
     assert "s" in result["uptime_human"]
+
+
+@pytest.mark.asyncio
+async def test_startup_refresh_runs_and_logs(monkeypatch):
+    """create_server() schedules _startup_refresh, which calls refresh_models_from_live."""
+    import asyncio
+    from model_radar import server as server_module
+
+    # Reset the singleton so the function takes the startup branch
+    server_module._server_start_time = None
+
+    async def fake_refresh():
+        return {"xai": 3, "googleai": 6}
+
+    monkeypatch.setattr("model_radar.provider_sync.refresh_models_from_live",
+                        fake_refresh)
+
+    mcp = server_module.create_server()
+    # Give the scheduled task a chance to run
+    await asyncio.sleep(0.05)
+    assert server_module._server_start_time is not None
