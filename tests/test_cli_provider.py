@@ -75,7 +75,7 @@ async def test_complete_cli_provider_success():
     assert result["content"] == "Hello from Grok!"
     assert result["provider_key"] == "grok"
     assert result["model_id"] == "grok-4"
-    assert result["latency_ms"] > 0
+    assert result["latency_ms"] >= 0  # mocked subprocess is instantaneous
     # Verify cmd was passed correctly
     args = mock_exec.call_args.args
     assert "grok" in args
@@ -121,7 +121,7 @@ async def test_complete_cli_provider_timeout():
         with patch("model_radar.cli_provider.COMPLETE_TIMEOUT_SECONDS", 0.1):
             with pytest.raises(CLIProviderError) as exc:
                 await complete_cli_provider(_provider(), model, [{"role": "user", "content": "hi"}])
-    assert "timeout" in str(exc.value).lower()
+    assert "timed out" in str(exc.value).lower()
 
 
 @pytest.mark.asyncio
