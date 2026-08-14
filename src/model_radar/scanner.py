@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from .config import get_api_key, get_configured_providers, is_provider_enabled, load_config
+from .lanes import model_in_scope
 from .db import get_models_for_discovery
 from .providers import PROVIDERS, TIER_ORDER, Model
 from .quality import get_model_quality
@@ -329,6 +330,7 @@ async def scan_models(
     min_tier: str | None = None,
     configured_only: bool = False,
     free_only: bool = False,
+    include_paid: bool = False,
     limit: int = 0,
     state: ScanState | None = None,
     verify: bool = False,
@@ -342,19 +344,31 @@ async def scan_models(
         provider: Filter to specific provider key
         min_tier: Filter to this tier or better (e.g. "A" includes S+, S, A+, A)
         configured_only: Only ping models whose provider has an API key
-        free_only: Only include models marked as free (from API or heuristic)
+        free_only: Only Lane A (never invoices). Ignores stale DB is_free bits.
+        include_paid: Allow funded Lane C hosts (Cerebras/MiniMax when funded).
         limit: Max results to return (0 = all)
         state: Optional ScanState for rolling averages
     """
     cfg = load_config()
-    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier, free_only=free_only)
+    models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier)
 
     if configured_only:
         configured = set(get_configured_providers(cfg))
-        models = [m for m in models if m.provider in configured]
+        models = [
+            m for m in models
+            if m.provider in configured and model_in_scope(
+                m.provider, m.model_id, cfg,
+                free_only=free_only, include_paid=include_paid,
+            )
+        ]
     else:
         # Still filter out disabled providers
         models = [m for m in models if is_provider_enabled(cfg, m.provider)]
+        if free_only:
+            models = [
+                m for m in models
+                if model_in_scope(m.provider, m.model_id, cfg, free_only=True)
+            ]
 
     async with httpx.AsyncClient() as client:
         tasks = [_ping_one(client, m, cfg) for m in models]

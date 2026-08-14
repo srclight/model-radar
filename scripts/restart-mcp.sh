@@ -10,7 +10,8 @@ TRIES="${MODEL_RADAR_WAIT_TRIES:-20}"
 systemctl --user restart "$UNIT"
 
 for i in $(seq 1 "$TRIES"); do
-  if curl -sS -o /dev/null --max-time 1 "http://127.0.0.1:${PORT}/sse" 2>/dev/null; then
+  # /sse streams forever — only check that the port accepts a TCP connect.
+  if timeout 1 bash -c "echo >/dev/tcp/127.0.0.1/${PORT}" 2>/dev/null; then
     echo "$UNIT is listening on 127.0.0.1:${PORT} (${i}s)"
     systemctl --user is-active "$UNIT"
     exit 0

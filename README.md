@@ -178,7 +178,9 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 
 ### Execution
 - **`run(prompt, model_id?, free_only?)`** — Execute on fastest model with auto-fallback
-- **`ask(prompt, count=3)`** — Same prompt on N models in parallel, compare responses
+- **`ask(prompt, count=3, model_ids?, providers?)`** — Same prompt on N models (Ollama sequential, remotes parallel)
+- **`recommend(job)`** — Short diverse lineup for `translate` / `rewrite` / `review` / `code`
+- **`quality_probe(job)`** — Time + pass/fail on a fixed prompt for that job
 - **`batch_run(prompts, results_file?)`** — Batch execution with incremental JSONL, resume support, adaptive concurrency
 
 ### Evaluation (LLM-as-Judge)

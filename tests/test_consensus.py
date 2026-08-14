@@ -71,6 +71,32 @@ async def test_ask_pinned_providers():
 
 
 @pytest.mark.asyncio
+async def test_ask_runs_ollama_after_remotes():
+    """Ollama calls are sequential and happen after remotes are gathered."""
+    order = []
+
+    async def mock_call(model, messages, cfg, max_tokens, temperature):
+        order.append(model.provider)
+        return _make_response(model.model_id, f"from {model.provider}")
+
+    nvidia = _model(provider="nvidia", model_id="gpt-oss-120b")
+    ollama = _model(provider="ollama", model_id="hy-mt-1.8b:latest")
+
+    with patch("model_radar.consensus.load_config", return_value={"api_keys": {}, "providers": {}}), \
+         patch("model_radar.consensus.resolve_model_ref", side_effect=[nvidia, ollama]), \
+         patch("model_radar.consensus._call_model", side_effect=mock_call), \
+         patch("model_radar.consensus.get_model_quality", return_value=None):
+        result = await ask_models(
+            prompt="hi",
+            model_ids=["nvidia/gpt-oss-120b", "ollama/hy-mt-1.8b:latest"],
+        )
+
+    assert "error" not in result
+    assert order == ["nvidia", "ollama"]
+    assert result["models_responded"] == 2
+
+
+@pytest.mark.asyncio
 async def test_ask_unknown_model_ids():
     """Unknown pinned ids return a structured error, no silent substitute."""
     with patch("model_radar.consensus.load_config", return_value={"api_keys": {}, "providers": {}}):
