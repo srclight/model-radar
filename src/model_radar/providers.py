@@ -473,3 +473,17 @@ def filter_models(
         max_ord = TIER_ORDER[min_tier]
         models = [m for m in models if TIER_ORDER.get(m.tier, 99) <= max_ord]
     return models
+
+
+# ---------------------------------------------------------------------------
+# CLI providers — auto-detected via PATH (grok, gemini)
+# ---------------------------------------------------------------------------
+# This must come AFTER all static _p() calls so it can safely overwrite.
+# Wrapped in try/except so the module loads even if PATH detection errors.
+from .cli_provider import register_cli_providers as _register_cli_providers
+
+try:
+    _register_cli_providers()
+except Exception:
+    # CLI providers are optional; don't crash static imports.
+    pass
