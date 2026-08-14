@@ -69,8 +69,21 @@ async def _run_uvicorn(config) -> None:
     await server.serve()
 
 
+@main.command("still-free")
+@click.option("--no-ping", "ping", is_flag=True, default=True, flag_value=False,
+              help="List Lane A hosts only; do not send completions")
+def still_free_cmd(ping: bool):
+    """One cheap ping per Lane A host in the default pool."""
+    import asyncio
+    import json
+
+    from .sweep import still_free
+
+    click.echo(json.dumps(asyncio.run(still_free(ping=ping)), indent=2))
+
+
 @main.command()
-@click.option("--job", "-j", type=click.Choice(["translate", "rewrite", "review"]), default="translate")
+@click.option("--job", "-j", type=click.Choice(["translate", "rewrite", "review", "dict"]), default="translate")
 @click.option("--count", "-n", default=3, help="How many models to probe")
 @click.option("--include-subscriptions", is_flag=True, help="Allow CLI subscriptions")
 def probe(job: str, count: int, include_subscriptions: bool):

@@ -5,9 +5,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from model_radar.cooldown import COOLDOWNS
 from model_radar.providers import Model
 from model_radar.runner import _call_model, _find_model, backtranslate_eval, run_on_fastest
 from model_radar.scanner import PingResult
+
+
+@pytest.fixture(autouse=True)
+def _clear_cooldowns():
+    COOLDOWNS.clear()
+    yield
+    COOLDOWNS.clear()
 
 
 def _model(provider="nvidia", model_id="test/model", label="Test Model",
@@ -43,6 +51,31 @@ async def test_call_model_no_key():
         result = await _call_model(m, [{"role": "user", "content": "hi"}], cfg)
         assert "error" in result
         assert "No API key" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_call_model_402_records_cooldown():
+    import httpx
+
+    from model_radar.cooldown import CooldownBook
+
+    m = _model(provider="sambanova")
+    cfg = {"api_keys": {"sambanova": "test-key"}, "providers": {}}
+    book = CooldownBook()
+    mock_response = httpx.Response(
+        402, text="Payment required",
+        request=httpx.Request("POST", "https://example.com"),
+    )
+    with (
+        patch("model_radar.runner.get_api_key", return_value="test-key"),
+        patch("model_radar.runner.COOLDOWNS", book),
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response),
+    ):
+        result = await _call_model(m, [{"role": "user", "content": "hi"}], cfg)
+    assert "error" in result
+    assert "402" in result["error"]
+    assert book.is_cooled("sambanova") is True
+    assert book.reason("sambanova") == "402"
 
 
 @pytest.mark.asyncio
@@ -159,16 +192,20 @@ async def test_fallback_all_fail():
 @pytest.mark.asyncio
 async def test_backtranslate_eval_computes_overlap():
     """Should compute gloss overlap between original and back-translation."""
-    async def mock_run(*args, **kwargs):
-        return {
-            "content": "father, head of a household",
-            "model_id": "test/model",
-            "model_label": "Test Model",
-            "provider": "NIM",
-            "latency_ms": 200.0,
-        }
+    m = _model(model_id="test/model", label="Test Model")
+    fake = {
+        "content": "father, head of a household",
+        "model_id": "test/model",
+        "model_label": "Test Model",
+        "provider": "NIM",
+        "latency_ms": 200.0,
+    }
 
-    with patch("model_radar.runner.run_on_fastest", side_effect=mock_run):
+    with (
+        patch("model_radar.runner.load_config", return_value={"api_keys": {"nvidia": "k"}, "providers": {}}),
+        patch("model_radar.runner.scan_models", return_value=[PingResult(model=m, status="up", latency_ms=10)]),
+        patch("model_radar.runner._call_model", new_callable=AsyncMock, return_value=fake),
+    ):
         result = await backtranslate_eval(
             text="father, head of household",
             translation="Vater, Haupt eines Haushalts",
@@ -233,3 +270,45 @@ async def test_call_model_cli_provider_error_returns_error_dict():
         )
     assert "error" in result
     assert "CLI not found" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_backtranslate_refuses_excluded_explicit_model():
+    with patch("model_radar.runner._find_model", return_value=_model(provider="minimax", model_id="m2.5")):
+        result = await backtranslate_eval(
+            text="father",
+            translation="Vater",
+            source_lang="English",
+            target_lang="German",
+            back_model_id="m2.5",
+            exclude_providers=["minimax"],
+        )
+    assert "error" in result
+    assert "producer" in result["error"].lower() or "exclud" in result["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_backtranslate_auto_skips_excluded_provider():
+    other = _model(provider="groq", model_id="kimi", label="Kimi")
+    ping = PingResult(model=other, status="up", latency_ms=10.0)
+    fake = {
+        "content": "father",
+        "model_id": "kimi",
+        "model_label": "Kimi",
+        "provider": "Groq",
+        "provider_key": "groq",
+    }
+    with (
+        patch("model_radar.runner.load_config", return_value={"api_keys": {"groq": "x"}, "providers": {}}),
+        patch("model_radar.runner.scan_models", return_value=[ping]),
+        patch("model_radar.runner._call_model", new_callable=AsyncMock, return_value=fake),
+    ):
+        result = await backtranslate_eval(
+            text="father",
+            translation="Vater",
+            source_lang="English",
+            target_lang="German",
+            exclude_providers=["minimax"],
+        )
+    assert "error" not in result
+    assert result["model_id"] == "kimi"
