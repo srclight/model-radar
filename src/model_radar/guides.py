@@ -182,6 +182,21 @@ _GUIDES: dict[str, dict] = {
         "key_format": "sk-...",
         "priority": "LOW — useful for Chinese models like Qwen, DeepSeek.",
     },
+    "ollama": {
+        "name": "Ollama (local)",
+        "free_tier": "Runs on your machine. No API key. Pull models with `ollama pull`.",
+        "model_count_note": "Whatever you have pulled; embeddings are skipped.",
+        "signup_url": "https://ollama.com/download",
+        "steps": [
+            "Install Ollama from https://ollama.com/download (or your package manager).",
+            "Start the daemon so http://127.0.0.1:11434/api/tags answers.",
+            "Pull a chat model, e.g. `ollama pull gemma3:27b` or `ollama pull mistral-small`.",
+            "Restart model-radar. No configure_key needed.",
+        ],
+        "env_var": "OLLAMA_API_KEY",
+        "key_format": "none — local, optional dummy key",
+        "priority": "HIGH — free local models you already have pulled.",
+    },
     "xai": {
         "name": "xAI (API key)",
         "free_tier": "Pay-as-you-go Grok API. Prefer the grok CLI if you have SuperGrok.",
@@ -213,12 +228,13 @@ _GUIDES: dict[str, dict] = {
     "gemini": {
         "name": "Gemini (Antigravity Subscription)",
         "free_tier": "Rides your Google AI Pro/Ultra or Gemini subscription via Antigravity CLI (`agy`). No API key. The old `gemini` CLI was deprecated June 2026.",
-        "model_count_note": "Gemini 3.x Pro/Flash via `agy`.",
+        "model_count_note": "Gemini 3.x plus other models on the Antigravity plan (`agy models`). Codex may appear as an in-app conversation, not always as an `agy` model id.",
         "signup_url": "https://antigravity.google/docs/cli/install",
         "steps": [
             "Install Antigravity CLI: `curl -fsSL https://antigravity.google/cli/install.sh | bash`.",
             "Put `~/.local/bin` on PATH if needed, then run `agy` once and sign in with Google in the browser.",
             "Verify with `agy models`. Restart model-radar so the `gemini` provider appears.",
+            "If the splash says Codex is included, use the standalone `codex` CLI for model-radar — `agy models` may not list gpt-5.6-terra.",
         ],
         "env_var": "",
         "key_format": "none — subscription login",
@@ -237,6 +253,21 @@ _GUIDES: dict[str, dict] = {
         "env_var": "",
         "key_format": "none — subscription login",
         "priority": "HIGH — use this if you already pay for Claude Pro/Max.",
+    },
+    "minimax": {
+        "name": "MiniMax",
+        "free_tier": "Pay-as-you-go on api.minimax.io. M3 is the current frontier coding/agent model (1M context).",
+        "model_count_note": "MiniMax-M3, M2.7, M2.5 and highspeed variants. Live list from GET /v1/models.",
+        "signup_url": "https://platform.minimax.io",
+        "steps": [
+            "Go to platform.minimax.io and create an account.",
+            "Open API Keys and create a key.",
+            "Call configure_key(provider='minimax', api_key=...).",
+            "Do not put this token in ANTHROPIC_AUTH_TOKEN globally — that hijacks Claude Code. MiniMax's Anthropic shim is https://api.minimax.io/anthropic if you want it only in a dedicated Claude Code profile.",
+        ],
+        "env_var": "MINIMAX_API_KEY",
+        "key_format": "sk-cp-... or sk-api-...",
+        "priority": "HIGH — first-party MiniMax M3, not the NVIDIA/OpenRouter resale.",
     },
     "codex": {
         "name": "Codex (Subscription)",

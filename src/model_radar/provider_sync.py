@@ -13,11 +13,36 @@ Supports:
 
 from __future__ import annotations
 
-import httpx
+import asyncio
+import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+import httpx
+
 from .config import get_api_key, load_config
+from .providers import is_ollama_embedding as _is_ollama_embedding
+
+# Catalog GETs are free; refresh at most this often unless force=True.
+CATALOG_TTL_SECONDS = 3600
+
+HTTPS_CATALOG_KEYS = (
+    "openrouter", "nvidia", "groq", "cerebras", "sambanova",
+    "siliconflow", "huggingface", "xai", "googleai", "ollama",
+    "minimax", "deepinfra", "fireworks", "codestral", "hyperbolic",
+    "scaleway", "together", "inferencenet", "sealion",
+)
+
+_refresh_lock: asyncio.Lock | None = None
+
+
+def _refresh_gate() -> asyncio.Lock:
+    global _refresh_lock
+    if _refresh_lock is None:
+        _refresh_lock = asyncio.Lock()
+    return _refresh_lock
 
 
 @dataclass
@@ -341,6 +366,86 @@ async def fetch_googleai_models(api_key: str | None = None) -> list[ProviderMode
             return []
 
 
+async def fetch_minimax_models(api_key: str | None = None) -> list[ProviderModel]:
+    """Fetch available models from MiniMax (OpenAI-compatible /v1/models)."""
+    return await _fetch_openai_compatible_models(
+        "https://api.minimax.io/v1/models", api_key, "minimax",
+    )
+
+
+async def fetch_deepinfra_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.deepinfra.com/v1/openai/models", api_key, "deepinfra",
+    )
+
+
+async def fetch_fireworks_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.fireworks.ai/inference/v1/models", api_key, "fireworks",
+    )
+
+
+async def fetch_codestral_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.mistral.ai/v1/models", api_key, "codestral",
+    )
+
+
+async def fetch_hyperbolic_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.hyperbolic.xyz/v1/models", api_key, "hyperbolic",
+    )
+
+
+async def fetch_scaleway_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.scaleway.ai/v1/models", api_key, "scaleway",
+    )
+
+
+async def fetch_together_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.together.xyz/v1/models", api_key, "together",
+    )
+
+
+async def fetch_inferencenet_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.inference.net/v1/models", api_key, "inferencenet",
+    )
+
+
+async def fetch_sealion_models(api_key: str | None = None) -> list[ProviderModel]:
+    return await _fetch_openai_compatible_models(
+        "https://api.sea-lion.ai/v1/models", api_key, "sealion",
+    )
+
+
+async def fetch_ollama_models(api_key: str | None = None) -> list[ProviderModel]:
+    """List chat models from a local Ollama daemon (GET /api/tags). No API key."""
+    url = "http://127.0.0.1:11434/api/tags"
+    headers = {"User-Agent": "model-radar/0.9 (github.com/srclight/model-radar)"}
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=headers, timeout=2.0)
+            resp.raise_for_status()
+            data = resp.json()
+            models = []
+            for item in data.get("models") or []:
+                model_id = item.get("name") or item.get("model") or ""
+                if not model_id or _is_ollama_embedding(model_id):
+                    continue
+                models.append(ProviderModel(
+                    model_id=model_id,
+                    label=model_id,
+                    provider="ollama",
+                    extra=item,
+                ))
+            return models
+        except Exception:
+            return []
+
+
 async def fetch_all_provider_models(
     provider: str | None = None,
 ) -> dict[str, list[ProviderModel]]:
@@ -356,13 +461,6 @@ async def fetch_all_provider_models(
     cfg = load_config()
     results = {}
 
-    all_fetchable = [
-        "openrouter", "nvidia", "groq",
-        "cerebras", "sambanova", "siliconflow", "huggingface",
-        "xai", "googleai",
-    ]
-    providers_to_fetch = [provider] if provider else all_fetchable
-
     fetchers = {
         "openrouter": fetch_openrouter_models,
         "nvidia": fetch_nvidia_models,
@@ -373,7 +471,19 @@ async def fetch_all_provider_models(
         "huggingface": fetch_huggingface_models,
         "xai": fetch_xai_models,
         "googleai": fetch_googleai_models,
+        "ollama": fetch_ollama_models,
+        "minimax": fetch_minimax_models,
+        "deepinfra": fetch_deepinfra_models,
+        "fireworks": fetch_fireworks_models,
+        "codestral": fetch_codestral_models,
+        "hyperbolic": fetch_hyperbolic_models,
+        "scaleway": fetch_scaleway_models,
+        "together": fetch_together_models,
+        "inferencenet": fetch_inferencenet_models,
+        "sealion": fetch_sealion_models,
     }
+    all_fetchable = list(fetchers)
+    providers_to_fetch = [provider] if provider else all_fetchable
 
     tasks = []
     for pkey in providers_to_fetch:
@@ -432,11 +542,21 @@ def _is_free_from_hf_providers(extra: dict | None) -> bool | None:
     return False
 
 
+def _seed_by_id(provider_key: str) -> dict[str, tuple]:
+    from .providers import SEED_MODELS
+    return {row[0]: row for row in SEED_MODELS.get(provider_key, ())}
+
+
 def _provider_models_to_db_rows(
     models: list[ProviderModel],
     provider_key: str,
 ) -> list[tuple[str, str, str, str, str, bool | None]]:
-    """Map ProviderModel list to (model_id, label, tier, swe_score, context_window, is_free) for DB."""
+    """Map live API models to DB rows. Seed metadata overlays matching ids.
+
+    Live list is identity (add new, drop retired). Seeds only supply
+    label/tier/SWE/context for ids we already knew.
+    """
+    seeds = _seed_by_id(provider_key)
     rows = []
     for m in models:
         is_free = None
@@ -447,39 +567,147 @@ def _provider_models_to_db_rows(
         if is_free is None and (m.model_id or "").lower():
             if ":free" in (m.model_id or "").lower() or "-free" in (m.model_id or "").lower():
                 is_free = True
-        rows.append((
-            m.model_id,
-            (m.label or m.model_id),
-            "C",
-            "",
-            str(m.context_length) if m.context_length else "",
-            is_free,
-        ))
+        seed = seeds.get(m.model_id)
+        if seed:
+            _sid, seed_label, tier, swe, seed_ctx = seed
+            label = seed_label if (not m.label or m.label == m.model_id) else m.label
+            context = str(m.context_length) if m.context_length else seed_ctx
+        else:
+            label = m.label or m.model_id
+            tier = "C"
+            swe = ""
+            context = str(m.context_length) if m.context_length else ""
+        rows.append((m.model_id, label, tier, swe, context, is_free))
     return rows
+
+
+def _apply_live_rows(
+    provider_key: str,
+    rows: list[tuple[str, str, str, str, str, bool | None]],
+    db_path: Path | None = None,
+) -> int:
+    from .db import replace_provider_models
+    n = replace_provider_models(provider_key, rows, db_path=db_path)
+    try:
+        from .providers import set_provider_models
+        set_provider_models(provider_key, tuple(
+            (mid, label, tier, swe, ctx) for mid, label, tier, swe, ctx, _free in rows
+        ))
+    except Exception:
+        pass
+    return n
 
 
 async def refresh_models_from_live(
     provider: str | None = None,
+    db_path: Path | None = None,
 ) -> dict[str, int]:
     """
-    Fetch latest model lists from configured providers and replace those
-    providers' models in the database. Discards previous models for each
-    such provider. Only providers with API keys are fetched.
+    Fetch latest model lists and replace those providers' catalogs.
 
-    Returns:
-        Dict mapping provider_key to number of models written to DB.
+    A successful non-empty fetch deletes retired ids and inserts the live
+    list. An empty/failed fetch leaves the last snapshot in place.
     """
-    from .db import replace_provider_models
+    from .db import mark_catalog_fetched
 
     results = await fetch_all_provider_models(provider=provider)
+    cfg = load_config()
     counts = {}
     for provider_key, models in results.items():
         if not models:
+            attempted = bool(get_api_key(cfg, provider_key)) or provider_key == "ollama"
+            if attempted:
+                mark_catalog_fetched(provider_key, 0, ok=False, db_path=db_path)
             continue
         rows = _provider_models_to_db_rows(models, provider_key)
-        n = replace_provider_models(provider_key, rows)
+        n = _apply_live_rows(provider_key, rows, db_path=db_path)
+        mark_catalog_fetched(provider_key, n, ok=True, db_path=db_path)
         counts[provider_key] = n
     return counts
+
+
+def refresh_cli_catalogs(
+    provider: str | None = None,
+    db_path: Path | None = None,
+) -> dict[str, int]:
+    """Re-list subscription CLIs and replace their catalogs (purge + add)."""
+    from .cli_provider import CLI_SPECS, fetch_cli_models
+    from .db import mark_catalog_fetched
+    from .providers import PROVIDERS
+
+    counts = {}
+    for spec in CLI_SPECS:
+        if provider and spec.key != provider:
+            continue
+        if spec.key not in PROVIDERS:
+            continue
+        models = fetch_cli_models(spec)
+        if not models:
+            mark_catalog_fetched(spec.key, 0, ok=False, db_path=db_path)
+            continue
+        rows = [
+            (mid, label, tier, swe, ctx, True)
+            for mid, label, tier, swe, ctx in models
+        ]
+        n = _apply_live_rows(spec.key, rows, db_path=db_path)
+        mark_catalog_fetched(spec.key, n, ok=True, db_path=db_path)
+        counts[spec.key] = n
+    return counts
+
+
+def _auto_refresh_disabled(db_path: Path | None) -> bool:
+    """Skip implicit refresh during pytest unless the test passed a db_path."""
+    if db_path is not None:
+        return False
+    return bool(os.environ.get("PYTEST_CURRENT_TEST")) or "pytest" in sys.modules
+
+
+async def ensure_catalog_fresh(
+    provider: str | None = None,
+    *,
+    ttl_seconds: int = CATALOG_TTL_SECONDS,
+    force: bool = False,
+    db_path: Path | None = None,
+) -> dict[str, int]:
+    """Refresh catalogs that are missing or older than TTL.
+
+    Catalog list calls are free. Completions are what cost money.
+    """
+    from .db import catalog_is_stale
+    from .providers import PROVIDERS
+
+    if not force and _auto_refresh_disabled(db_path):
+        return {}
+
+    async with _refresh_gate():
+        https_stale = False
+        cli_stale = False
+        if provider:
+            https_stale = provider in HTTPS_CATALOG_KEYS and (
+                force or catalog_is_stale(provider, ttl_seconds, db_path)
+            )
+            cli_stale = (
+                provider in PROVIDERS
+                and getattr(PROVIDERS[provider], "kind", "https") == "cli"
+                and (force or catalog_is_stale(provider, ttl_seconds, db_path))
+            )
+        else:
+            https_stale = force or any(
+                catalog_is_stale(k, ttl_seconds, db_path)
+                for k in HTTPS_CATALOG_KEYS
+            )
+            cli_stale = force or any(
+                catalog_is_stale(k, ttl_seconds, db_path)
+                for k, p in PROVIDERS.items()
+                if getattr(p, "kind", "https") == "cli"
+            )
+
+        counts: dict[str, int] = {}
+        if https_stale:
+            counts.update(await refresh_models_from_live(provider=provider, db_path=db_path))
+        if cli_stale:
+            counts.update(refresh_cli_catalogs(provider=provider, db_path=db_path))
+        return counts
 
 
 def compare_models(

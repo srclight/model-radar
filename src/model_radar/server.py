@@ -197,6 +197,8 @@ async def list_models(
         min_tier: Show this tier and above (e.g. "A" = A, A+, S, S+)
         free_only: If true, only list models marked as free (from API or :free/-free in id)
     """
+    from .provider_sync import ensure_catalog_fresh
+    await ensure_catalog_fresh(provider)
     models = get_models_for_discovery(tier=tier, provider=provider, min_tier=min_tier, free_only=free_only)
     # Sort by tier quality
     models.sort(key=lambda m: (TIER_ORDER.get(m.tier, 99), m.label))
@@ -252,6 +254,8 @@ async def scan(
         verify: Send a real prompt to validate non-empty content (default false)
         verify_prompt: Custom verification prompt (default "Reply with exactly: OK")
     """
+    from .provider_sync import ensure_catalog_fresh
+    await ensure_catalog_fresh(provider)
     results = await scan_models(
         tier=tier, provider=provider, min_tier=min_tier,
         configured_only=configured_only, free_only=free_only, limit=limit, state=_state,
@@ -290,6 +294,8 @@ async def get_fastest(
         free_only: If true, only return models marked as free
         verified: If true, verify models produce non-empty output (default false)
     """
+    from .provider_sync import ensure_catalog_fresh
+    await ensure_catalog_fresh(provider)
     results = await scan_models(
         min_tier=min_tier, provider=provider,
         configured_only=True, free_only=free_only, limit=count * 2 if verified else count,
@@ -359,7 +365,7 @@ async def configure_key(provider: str, api_key: str) -> str:
         provider: Provider key (nvidia, groq, cerebras, sambanova, openrouter,
                   huggingface, replicate, deepinfra, fireworks, codestral,
                   hyperbolic, scaleway, googleai, siliconflow, together,
-                  cloudflare, perplexity)
+                  cloudflare, perplexity, minimax)
         api_key: The API key value
     """
     if provider not in PROVIDERS:
@@ -387,12 +393,15 @@ async def refresh_models(
     run_ping: bool = False,
     ping_limit: int = 20,
 ) -> str:
-    """Fetch latest model lists from configured providers (openrouter, nvidia, groq) and replace them in the database.
+    """Fetch latest model lists and replace each provider's catalog (add new ids, purge retired ones).
 
-    Only providers with API keys are fetched; their previous model list is discarded and replaced with the live API list. Other providers keep their existing list. Use this to get the current catalog, then call scan() or get_fastest() for discovery. Optionally run a quick ping test after refresh.
+    Catalog GETs are free. A successful fetch discards that provider's previous
+    list. An empty/failed fetch keeps the last snapshot. Use this to get the
+    current catalog, then call scan() or get_fastest(). list_models() also
+    refreshes any catalog older than an hour.
 
     Args:
-        provider: Optional provider to refresh only (openrouter, nvidia, groq)
+        provider: Optional provider to refresh only (minimax, cerebras, ollama, …)
         run_ping: If true, run a ping test on up to ping_limit models after refreshing
         ping_limit: Max models to ping when run_ping is true (default 20)
     """
@@ -402,7 +411,7 @@ async def refresh_models(
     if not counts:
         return json.dumps({
             "refreshed": 0,
-            "message": "No providers with API keys returned models (openrouter, nvidia, groq).",
+            "message": "No providers with API keys returned models.",
             "ping_run": False,
         }, indent=2)
 
@@ -450,8 +459,10 @@ async def run(
         max_tokens: Max response tokens (default 4096)
         temperature: Sampling temperature (default 0.0 for deterministic)
     """
+    from .provider_sync import ensure_catalog_fresh
     from .runner import run_on_fastest
 
+    await ensure_catalog_fresh(provider)
     result = await run_on_fastest(
         prompt=prompt,
         system_prompt=system_prompt,
@@ -529,7 +540,9 @@ async def ask(
         temperature: Sampling temperature (default 0.0 for deterministic)
     """
     from .consensus import ask_models
+    from .provider_sync import ensure_catalog_fresh
 
+    await ensure_catalog_fresh(provider)
     result = await ask_models(
         prompt=prompt,
         system_prompt=system_prompt,
@@ -791,6 +804,8 @@ async def get_workers(
         free_only: Only include free models (default false)
         verified: Verify models produce non-empty output (default true)
     """
+    from .provider_sync import ensure_catalog_fresh
+    await ensure_catalog_fresh()
     # Scan more models than needed to have room after provider dedup
     results = await scan_models(
         min_tier=min_tier, configured_only=True, free_only=free_only,
@@ -1016,27 +1031,22 @@ async def server_stats() -> str:
 
 
 def create_server() -> FastMCP:
-    """Return the MCP server instance. Kicks off background refresh on first call."""
+    """Return the MCP server instance.
+
+    Catalog refresh is started from the serve loop (see cli._run_uvicorn),
+    not here — create_server() runs before an event loop exists.
+    """
     global _server_start_time
     if _server_start_time is None:
         _server_start_time = time.time()
-        # Schedule background refresh on first server creation. If called before
-        # an event loop exists (stdio startup), the task runs on the next loop tick.
-        # Skip live catalog fetch under pytest (avoids hanging the suite on provider APIs).
-        if not os.environ.get("PYTEST_CURRENT_TEST"):
-            try:
-                asyncio.ensure_future(_startup_refresh())
-            except RuntimeError:
-                # No event loop yet; refresh will be skipped but server still works.
-                pass
     return mcp
 
 
 async def _startup_refresh() -> None:
     """Background task: refresh model catalog from live APIs. Errors are logged, never raised."""
     try:
-        from .provider_sync import refresh_models_from_live
-        counts = await refresh_models_from_live()
+        from .provider_sync import ensure_catalog_fresh
+        counts = await ensure_catalog_fresh(force=True)
         total = sum(counts.values()) if counts else 0
         if total > 0:
             import sys

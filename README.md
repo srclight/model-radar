@@ -106,16 +106,29 @@ model-radar providers
 model-radar configure nvidia nvapi-xxx
 ```
 
-## Providers (21)
+## Catalogs are live
 
-| Provider | Env Var | Free Tier |
-|----------|---------|-----------|
+Model ids are **not** a hardcoded list. On startup, once an hour, and after a completion 404, model-radar fetches each provider’s `/v1/models` (Ollama `/api/tags`, `grok models` / `agy models`) and **replaces** that provider’s catalog — new ids in, retired ids gone. `GET /v1/models` is free; completions are what you pay for.
+
+Seed tuples in the package are a fallback plus SWE-bench overlays for known ids. See [Catalog playbook](docs/playbook-catalogs.md).
+
+```sh
+model-radar db refresh              # force live replace
+python scripts/catalog-report.py    # seed vs live vs missing keys (no secrets)
+```
+
+## Providers
+
+HTTPS providers take an API key (`configure_key` or env). Call `list_providers()` for the current count and key status.
+
+| Provider | Env Var | Notes |
+|----------|---------|--------|
 | NVIDIA NIM | `NVIDIA_API_KEY` | Rate-limited, no expiry |
 | Groq | `GROQ_API_KEY` | Free tier |
-| Cerebras | `CEREBRAS_API_KEY` | Free tier |
+| Cerebras | `CEREBRAS_API_KEY` | Small, fast; catalog rotates often |
 | SambaNova | `SAMBANOVA_API_KEY` | $5 credits / 3 months |
-| OpenRouter | `OPENROUTER_API_KEY` | 50 req/day on :free models |
-| Hugging Face | `HF_TOKEN` | Free monthly credits |
+| OpenRouter | `OPENROUTER_API_KEY` | `:free` ids change frequently |
+| Hugging Face | `HF_TOKEN` / `HUGGINGFACE_API_KEY` | Free monthly credits |
 | Replicate | `REPLICATE_API_TOKEN` | Dev quota |
 | DeepInfra | `DEEPINFRA_API_KEY` | Free dev tier |
 | Fireworks | `FIREWORKS_API_KEY` | $1 free credits |
@@ -127,10 +140,11 @@ model-radar configure nvidia nvapi-xxx
 | Together AI | `TOGETHER_API_KEY` | Credits vary |
 | Cloudflare | `CLOUDFLARE_API_TOKEN` | 10K neurons/day |
 | Perplexity | `PERPLEXITY_API_KEY` | Tiered limits |
-| xAI | `XAI_API_KEY` | Free tier |
-| Inference.net | `INFERENCE_API_KEY` | Free tier |
+| xAI | `XAI_API_KEY` | Or use the `grok` CLI instead |
+| Inference.net | `INFERENCE_NET_API_KEY` | Free tier |
 | SEA-LION | `SEALION_API_KEY` | Free tier |
-| Ollama | `OLLAMA_API_KEY` | Local, free |
+| MiniMax | `MINIMAX_API_KEY` | `api.minimax.io` (M3). Same token works on `/anthropic` — do not set `ANTHROPIC_AUTH_TOKEN` globally |
+| Ollama | none (local daemon) | Models already pulled on `127.0.0.1:11434` |
 
 ## CLI subscriptions
 
@@ -143,7 +157,7 @@ If you already pay for a monthly plan, model-radar can ride that subscription �
 | `agy` (provider key `gemini`) | Google AI Pro/Ultra / Gemini | run `agy` once to sign in |
 | `codex` | ChatGPT Plus / Pro | `codex login` |
 
-The old `gemini` CLI was deprecated (June 2026) in favor of [Antigravity CLI](https://antigravity.google/docs/cli/install) (`agy`). Install: `curl -fsSL https://antigravity.google/cli/install.sh | bash`.
+The old `gemini` CLI was deprecated (June 2026) in favor of [Antigravity CLI](https://antigravity.google/docs/cli/install) (`agy`). Install: `curl -fsSL https://antigravity.google/cli/install.sh | bash`. `agy models` may also list Claude and GPT-OSS on the same login. Codex-in-agy is a conversation mode; for model-radar use the standalone `codex` CLI.
 
 These never join `get_fastest()` / default `ask()` — that would spend quota by accident. Pin them:
 
@@ -156,7 +170,7 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 
 ### Discovery
 - **`list_providers()`** — See all providers, API-key status, and installed subscription CLIs
-- **`list_models(tier?, provider?, min_tier?, free_only?)`** — Browse the model catalog
+- **`list_models(tier?, provider?, min_tier?, free_only?)`** — Browse the catalog (refreshes a provider if its list is older than an hour)
 - **`scan(verify?)`** — Ping models in parallel, ranked by latency. `verify=True` checks for non-empty output.
 - **`get_fastest(min_tier?, count?, free_only?, verified?)`** — Best N models right now
 - **`get_workers(count?, min_tier?, verified?)`** — N verified-alive models from N distinct providers
@@ -175,7 +189,7 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 
 ### Quality & Setup
 - **`benchmark(model_id?)`** — Quality-test with 5 coding challenges
-- **`refresh_models()`** — Fetch latest model lists from live APIs
+- **`refresh_models()`** — Fetch live lists and replace each provider’s catalog (purge retired ids)
 - **`setup_guide(provider?)`** — Setup instructions for unconfigured providers
 - **`configure_key(provider, api_key)`** — Save an API key
 - **`restart_server()`** — Restart for code updates (SSE mode)
@@ -196,8 +210,10 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — Module map, data flow, transport, rate limiting
+- [Architecture](docs/architecture.md) — Module map, live catalogs, transport, rate limiting
 - [MCP Transport](docs/mcp-transport.md) — Transport options, stateless HTTP, client configuration
+- [Catalog playbook](docs/playbook-catalogs.md) — Live vs seed, TTL, purge, 404 refetch
+- [Local MCP ops](docs/playbook-local-mcp.md) — systemd restart, keys, compare runs
 - [Translation Pipeline Playbook](docs/playbook-translation-pipeline.md) — Batch translation patterns
 - [LLM-as-Judge Playbook](docs/playbook-llm-as-judge.md) — Evaluation patterns and judge selection
 

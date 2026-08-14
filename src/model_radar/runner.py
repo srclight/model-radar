@@ -30,6 +30,7 @@ async def _call_model(
     max_tokens: int = 4096,
     temperature: float = 0.0,
     throttle: ProviderThrottle | None = None,
+    _retried_404: bool = False,
 ) -> dict:
     """Send a chat/completions request to a model and return the response."""
     # CLI provider (subprocess) — not HTTP
@@ -100,17 +101,64 @@ async def _call_model(
 
     start = time.monotonic()
     async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=payload, headers=headers, timeout=120.0)
+        timeout = 300.0 if model.provider == "ollama" else 120.0
+        try:
+            resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+        except httpx.TimeoutException:
+            return {
+                "error": f"timeout after {timeout:.0f}s",
+                "model": model.label,
+                "model_id": model.model_id,
+                "model_label": model.label,
+                "provider": prov.name,
+                "provider_key": model.provider,
+                "tier": model.tier,
+                "latency_ms": round((time.monotonic() - start) * 1000, 1),
+            }
         elapsed_ms = (time.monotonic() - start) * 1000
 
     if resp.status_code not in (200, 201):
         if resp.status_code == 429:
             _thr.record_429(model.provider)
+        if resp.status_code == 404 and not _retried_404:
+            try:
+                from .provider_sync import ensure_catalog_fresh
+                await ensure_catalog_fresh(model.provider, force=True)
+            except Exception:
+                pass
+            live_ids = [
+                t[0] for t in getattr(PROVIDERS.get(model.provider), "models", ())
+            ]
+            if model.model_id not in live_ids:
+                return {
+                    "error": (
+                        f"HTTP 404 — {model.model_id} is not in the live "
+                        f"{model.provider} catalog"
+                    ),
+                    "current_models": live_ids,
+                    "model": model.label,
+                    "model_id": model.model_id,
+                    "model_label": model.label,
+                    "provider": prov.name,
+                    "provider_key": model.provider,
+                    "tier": model.tier,
+                    "latency_ms": round(elapsed_ms, 1),
+                }
+            return await _call_model(
+                model, messages, cfg,
+                max_tokens=max_tokens, temperature=temperature,
+                throttle=throttle, _retried_404=True,
+            )
         return {
             "error": f"HTTP {resp.status_code}",
             "detail": resp.text[:500],
             "model": model.label,
+            "model_id": model.model_id,
+            "model_label": model.label,
             "provider": prov.name,
+            "provider_key": model.provider,
+            "tier": model.tier,
+            "latency_ms": round(elapsed_ms, 1),
         }
 
     _thr.record_success(model.provider)

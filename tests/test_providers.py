@@ -3,10 +3,12 @@
 from model_radar.providers import (
     ALL_TIERS,
     PROVIDERS,
+    SEED_MODELS,
     TIER_ORDER,
     Model,
     filter_models,
     get_all_models,
+    set_provider_models,
 )
 
 
@@ -19,7 +21,7 @@ def test_all_providers_defined():
         "huggingface", "replicate", "deepinfra", "fireworks", "codestral",
         "hyperbolic", "scaleway", "googleai", "siliconflow", "together",
         "cloudflare", "perplexity", "xai", "inferencenet", "sealion",
-        "ollama",
+        "ollama", "minimax",
     }
     # CLI providers may or may not be registered depending on PATH; allow extras.
     assert set(PROVIDERS.keys()) >= expected
@@ -37,8 +39,12 @@ def test_all_providers_defined():
 
 
 def test_provider_has_models():
-    """Every provider should have at least one model."""
+    """Every provider should have at least one model, except local catalogs
+    that are filled from the user's machine (Ollama may be empty if the
+    daemon is down)."""
     for key, prov in PROVIDERS.items():
+        if key == "ollama":
+            continue
         assert len(prov.models) > 0, f"Provider {key} has no models"
 
 
@@ -100,6 +106,20 @@ def test_filter_by_min_tier():
     allowed = {"S+", "S", "A+", "A"}
     assert all(m.tier in allowed for m in models)
     assert len(models) > 0
+
+
+def test_seed_models_survive_live_replace():
+    """Live catalog overwrites PROVIDERS but seed overlays stay put."""
+    assert "minimax" in SEED_MODELS
+    seed = SEED_MODELS["minimax"]
+    old = PROVIDERS["minimax"].models
+    try:
+        set_provider_models("minimax", (("live-only", "Live", "C", "", ""),))
+        assert PROVIDERS["minimax"].models[0][0] == "live-only"
+        assert SEED_MODELS["minimax"] == seed
+        assert any(row[0] == "MiniMax-M3" for row in SEED_MODELS["minimax"])
+    finally:
+        set_provider_models("minimax", old)
 
 
 def test_tier_order():

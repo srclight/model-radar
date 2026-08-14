@@ -1,5 +1,17 @@
 # Architecture
 
+## Catalogs are live, not hardcoded
+
+model-radar is for every user, not one machine. Provider **endpoints** (base URL, env var, CLI command) live in code. Model **ids** come from the user's world:
+
+- HTTPS: `GET /v1/models` on startup, hourly (`CATALOG_TTL_SECONDS`), `refresh_models()`, and after a completion **404**
+- Ollama: `GET http://127.0.0.1:11434/api/tags` on this machine (seed is empty)
+- Subscription CLIs: `grok models`, `agy models`, etc.
+
+A successful fetch **replaces** that provider’s SQLite rows (new ids in, retired ids gone). An empty/failed fetch keeps the last snapshot. Seed tuples in `SEED_MODELS` (`providers.py`) are fallbacks plus SWE-bench overlays for known ids — never the identity of the catalog.
+
+Listing catalogs is free. Completions are what cost money. See [playbook-catalogs.md](playbook-catalogs.md).
+
 ## Overview
 
 Model Radar is an MCP server that discovers, pings, and executes prompts on free coding LLM models across HTTPS providers, and rides monthly subscriptions via local CLIs (`claude`, `grok`, `agy`, `codex`). It ranks HTTPS models by real-time latency. Subscription CLIs are opt-in via `ask(model_ids=…)` / `ask(providers=…)`.
@@ -8,7 +20,7 @@ Model Radar is an MCP server that discovers, pings, and executes prompts on free
 
 | Module | Purpose |
 |--------|---------|
-| `providers.py` | Provider/model definitions, tier system (S+ through C based on SWE-bench Verified) |
+| `providers.py` | Provider endpoints + `SEED_MODELS` fallbacks, tier system (S+ through C based on SWE-bench Verified) |
 | `scanner.py` | Async httpx ping engine, parallel model scanning, rolling stats, verified-alive checks, adaptive rate limiting |
 | `runner.py` | Execute prompts via chat/completions API, automatic fallback, batch execution, back-translation evaluation |
 | `consensus.py` | Multi-model consensus — run same prompt on N models in parallel |
@@ -21,20 +33,25 @@ Model Radar is an MCP server that discovers, pings, and executes prompts on free
 | `server.py` | FastMCP server, all MCP tool definitions |
 | `cli.py` | Click CLI — serve, scan, providers, db commands |
 | `db.py` | SQLite persistence for model catalog and ping results |
-| `provider_sync.py` | Live model fetching from provider APIs (OpenRouter, NVIDIA, Groq) |
+| `provider_sync.py` | Live `/v1/models` fetch, TTL refresh, purge+add, CLI catalog replace |
+| `cli_provider.py` | Subscription CLIs (`claude`, `grok`, `agy`, `codex`) as single-turn completions |
 
 ## Data Flow
 
 ```
-Provider APIs → providers.py (static catalog)
+Live /v1/models, Ollama /api/tags, `agy models`
                     ↓
-              db.py (SQLite, synced on first use)
+        provider_sync.ensure_catalog_fresh
+                    ↓
+     db.py (replace provider rows) + PROVIDERS[]
                     ↓
            scanner.py (ping → latency ranking)
                     ↓
-            runner.py (execute on fastest)
+            runner.py (execute; 404 → refetch)
                     ↓
            server.py (MCP tools → agents)
+
+SEED_MODELS overlay tier/SWE onto matching live ids only.
 ```
 
 ## Transport

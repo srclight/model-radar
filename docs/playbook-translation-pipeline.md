@@ -52,11 +52,19 @@ Returns gloss overlap score (0.0-1.0), matching/missing/extra glosses. Use a dif
 
 ### Think-tag models (Qwen3 class)
 
-Qwen3 32B wraps output in `<think>...</think>` tags, consuming max_tokens on reasoning before producing the answer. Model Radar strips think tags automatically in all tools (`runner.py`, `judge.py`).
+Qwen3 32B / Qwen3.5 / MiniMax M3 wrap output in `<think>...</think>` tags, consuming max_tokens on reasoning before producing the answer. Model Radar strips think tags automatically in all tools (`runner.py`, `judge.py`). For a one-line translation use `max_tokens` ≥ 512 or you will get truncated English thinking and an empty translation.
 
-### Reasoning-field models (GPT-OSS class)
+### Reasoning-field models (GPT-OSS / GLM class)
 
-GPT-OSS-120B returns empty `content` but puts output in `message.reasoning`. Model Radar checks both fields transparently. `scan(verify=True)` won't falsely mark these as broken.
+GPT-OSS-120B and Cerebras `zai-glm-4.7` return empty `content` but put output in `message.reasoning`. Model Radar checks both fields transparently. `scan(verify=True)` won't falsely mark these as broken. Local Ollama `glm-4.7-flash` and `qwen3.5:9b` still dump reasoning when the token budget is 128.
+
+### Stale catalog ids
+
+Do not pin last month’s Cerebras/NVIDIA/OpenRouter names. `refresh_models()` first, or let the hourly/404 refresh run. A 404 now refetches that provider and names the current list instead of retrying a retired id.
+
+### Local Ollama vs remotes
+
+Ollama is one GPU — run local models **sequentially**. Remotes (MiniMax, Cerebras, `agy`, `grok`, `codex`) are safe in parallel. A 3B–20B local translate can take 1–5 minutes; the same sentence on MiniMax M3 or Cerebras `gpt-oss-120b` is under 2 seconds.
 
 ### Script purity
 
