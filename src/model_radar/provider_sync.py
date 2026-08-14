@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import get_api_key, load_config
+from .providers import is_ollama_embedding as _is_ollama_embedding
 
 
 @dataclass
@@ -341,6 +342,31 @@ async def fetch_googleai_models(api_key: str | None = None) -> list[ProviderMode
             return []
 
 
+async def fetch_ollama_models(api_key: str | None = None) -> list[ProviderModel]:
+    """List chat models from a local Ollama daemon (GET /api/tags). No API key."""
+    url = "http://127.0.0.1:11434/api/tags"
+    headers = {"User-Agent": "model-radar/0.9 (github.com/srclight/model-radar)"}
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=headers, timeout=2.0)
+            resp.raise_for_status()
+            data = resp.json()
+            models = []
+            for item in data.get("models") or []:
+                model_id = item.get("name") or item.get("model") or ""
+                if not model_id or _is_ollama_embedding(model_id):
+                    continue
+                models.append(ProviderModel(
+                    model_id=model_id,
+                    label=model_id,
+                    provider="ollama",
+                    extra=item,
+                ))
+            return models
+        except Exception:
+            return []
+
+
 async def fetch_all_provider_models(
     provider: str | None = None,
 ) -> dict[str, list[ProviderModel]]:
@@ -359,7 +385,7 @@ async def fetch_all_provider_models(
     all_fetchable = [
         "openrouter", "nvidia", "groq",
         "cerebras", "sambanova", "siliconflow", "huggingface",
-        "xai", "googleai",
+        "xai", "googleai", "ollama",
     ]
     providers_to_fetch = [provider] if provider else all_fetchable
 
@@ -373,6 +399,7 @@ async def fetch_all_provider_models(
         "huggingface": fetch_huggingface_models,
         "xai": fetch_xai_models,
         "googleai": fetch_googleai_models,
+        "ollama": fetch_ollama_models,
     }
 
     tasks = []
