@@ -303,6 +303,11 @@ _p("scaleway", "Scaleway", "https://api.scaleway.ai/v1/chat/completions",
 # --- Google AI ---
 _p("googleai", "Google AI", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
    ("GOOGLE_API_KEY",), (
+    # Gemini (Pro/Flash/Lite) — via Google AI Studio API
+    ("gemini-2.5-pro", "Gemini 2.5 Pro", "S+", "70.0%", "1M"),
+    ("gemini-2.5-flash", "Gemini 2.5 Flash", "S", "60.0%", "1M"),
+    ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", "A+", "55.0%", "1M"),
+    # Gemma (open weights)
     ("gemma-3-27b-it", "Gemma 3 27B", "B", "22.0%", "128k"),
     ("gemma-3-12b-it", "Gemma 3 12B", "C", "15.0%", "128k"),
     ("gemma-3-4b-it", "Gemma 3 4B", "C", "10.0%", "128k"),
