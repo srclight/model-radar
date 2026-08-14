@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from .config import get_api_key, get_configured_providers, is_provider_enabled, load_config
+from .cooldown import COOLDOWNS
 from .lanes import model_in_scope
 from .db import get_models_for_discovery
 from .providers import PROVIDERS, TIER_ORDER, Model
@@ -29,6 +30,28 @@ PING_PAYLOAD = {
 }
 
 TIMEOUT_SECONDS = 10.0
+
+RETRYABLE_HTTP = frozenset({402, 429, 500, 502, 503, 529})
+
+
+def should_cooldown(status_code: int) -> str | None:
+    """Return cooldown reason or None. 403/5xx do not cool; 401/402/429/529 do."""
+    if status_code in (401, 402, 429, 529):
+        return str(status_code)
+    return None
+
+
+def ping_status_for_http(status_code: int, *, has_key: bool) -> str:
+    """Map an HTTP status to a PingResult.status (body checks happen separately)."""
+    if status_code in (200, 201):
+        return "up"
+    if status_code in (401, 403):
+        return "error" if has_key else "no_key"
+    if status_code == 404:
+        return "not_found"
+    if status_code in RETRYABLE_HTTP or status_code >= 500:
+        return "overloaded"
+    return "error"
 
 
 class ProviderThrottle:
@@ -224,21 +247,23 @@ async def _ping_one(
                     return PingResult(model=model, status="error", latency_ms=elapsed_ms,
                                       error_detail="invalid_response")
             return PingResult(model=model, status="up", latency_ms=elapsed_ms)
-        elif resp.status_code in (401, 403):
-            if api_key:
-                return PingResult(model=model, status="error", latency_ms=elapsed_ms,
-                                  error_detail="invalid_key")
-            return PingResult(model=model, status="no_key", latency_ms=elapsed_ms)
-        elif resp.status_code == 404:
-            return PingResult(model=model, status="not_found", latency_ms=elapsed_ms)
-        elif resp.status_code == 429:
-            return PingResult(model=model, status="overloaded", latency_ms=elapsed_ms)
-        elif resp.status_code >= 500:
-            return PingResult(model=model, status="overloaded", latency_ms=elapsed_ms,
-                              error_detail=f"HTTP {resp.status_code}")
         else:
-            return PingResult(model=model, status="error", latency_ms=elapsed_ms,
-                              error_detail=f"HTTP {resp.status_code}")
+            reason = should_cooldown(resp.status_code)
+            if reason:
+                COOLDOWNS.record(model.provider, reason)
+            status = ping_status_for_http(resp.status_code, has_key=bool(api_key))
+            detail = (
+                "invalid_key" if resp.status_code in (401, 403) and api_key
+                else f"HTTP {resp.status_code}"
+            )
+            if status == "no_key":
+                detail = None
+            return PingResult(
+                model=model,
+                status=status,
+                latency_ms=elapsed_ms,
+                error_detail=detail,
+            )
 
     except httpx.TimeoutException:
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -370,9 +395,21 @@ async def scan_models(
                 if model_in_scope(m.provider, m.model_id, cfg, free_only=True)
             ]
 
+    cooled = [m for m in models if COOLDOWNS.is_cooled(m.provider)]
+    models = [m for m in models if not COOLDOWNS.is_cooled(m.provider)]
+    cooled_results = [
+        PingResult(
+            model=m,
+            status="cooled",
+            error_detail=COOLDOWNS.reason(m.provider),
+        )
+        for m in cooled
+    ]
+
     async with httpx.AsyncClient() as client:
         tasks = [_ping_one(client, m, cfg) for m in models]
-        results = await asyncio.gather(*tasks)
+        results = list(await asyncio.gather(*tasks))
+    results.extend(cooled_results)
 
     # Record stats
     if state:
@@ -415,7 +452,10 @@ async def scan_models(
 
     # Sort: up models by latency first, then others
     def sort_key(r: PingResult):
-        status_order = {"up": 0, "no_key": 1, "overloaded": 2, "broken": 3, "timeout": 4, "error": 5, "not_found": 6}
+        status_order = {
+            "up": 0, "no_key": 1, "overloaded": 2, "broken": 3,
+            "timeout": 4, "error": 5, "not_found": 6, "cooled": 7,
+        }
         return (
             status_order.get(r.status, 9),
             r.latency_ms if r.latency_ms is not None else 999999,

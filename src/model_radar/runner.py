@@ -16,7 +16,8 @@ import httpx
 
 from .config import get_api_key, load_config
 from .providers import PROVIDERS, Model
-from .scanner import ProviderThrottle, ScanState, scan_models
+from .cooldown import COOLDOWNS
+from .scanner import ProviderThrottle, ScanState, scan_models, should_cooldown
 from .text_utils import strip_think_tags
 
 # Module-level throttle instance shared across all calls
@@ -118,6 +119,9 @@ async def _call_model(
         elapsed_ms = (time.monotonic() - start) * 1000
 
     if resp.status_code not in (200, 201):
+        reason = should_cooldown(resp.status_code)
+        if reason:
+            COOLDOWNS.record(model.provider, reason)
         if resp.status_code == 429:
             _thr.record_429(model.provider)
         if resp.status_code == 404 and not _retried_404:
@@ -292,7 +296,10 @@ async def run_on_fastest(
         configured_only=True, free_only=free_only,
         limit=max_retries + 2, state=state,
     )
-    up_results = [r for r in results if r.status == "up"]
+    up_results = [
+        r for r in results
+        if r.status == "up" and not COOLDOWNS.is_cooled(r.model.provider)
+    ]
     if not up_results:
         return {
             "error": "No models available. Check API keys with list_providers().",
@@ -538,6 +545,8 @@ async def backtranslate_eval(
     free_only: bool = False,
     max_tokens: int = 512,
     state: ScanState | None = None,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> dict:
     """Translate back to source language and compute gloss overlap.
 
@@ -554,16 +563,40 @@ async def backtranslate_eval(
     )
     messages = [{"role": "user", "content": prompt}]
 
+    banned_p = set(exclude_providers or ())
+    banned_m = set(exclude_model_ids or ())
+
     if back_model_id:
         target = _find_model(back_model_id)
         if not target:
             return {"error": f"Model '{back_model_id}' not found"}
+        if target.provider in banned_p or target.model_id in banned_m:
+            return {
+                "error": "back-translation model is the excluded producer",
+                "excluded": {"providers": list(banned_p), "model_ids": list(banned_m)},
+            }
         result = await _call_model(model=target, messages=messages, cfg=cfg,
                                    max_tokens=max_tokens, temperature=0.0)
     else:
-        result = await run_on_fastest(
-            prompt=prompt, min_tier=min_tier, free_only=free_only,
-            max_tokens=max_tokens, temperature=0.0, state=state,
+        results = await scan_models(
+            min_tier=min_tier, configured_only=True, free_only=free_only,
+            limit=8, state=state,
+        )
+        up = [
+            r for r in results
+            if r.status == "up"
+            and r.model.provider not in banned_p
+            and r.model.model_id not in banned_m
+            and not COOLDOWNS.is_cooled(r.model.provider)
+        ]
+        if not up:
+            return {
+                "error": "no back-translation model left after excluding producer",
+                "excluded": {"providers": list(banned_p), "model_ids": list(banned_m)},
+            }
+        result = await _call_model(
+            model=up[0].model, messages=messages, cfg=cfg,
+            max_tokens=max_tokens, temperature=0.0,
         )
 
     if "error" in result:

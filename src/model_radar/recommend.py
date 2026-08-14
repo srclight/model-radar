@@ -12,12 +12,16 @@ from .db import get_models_for_discovery
 from .lanes import model_in_scope
 from .providers import TIER_ORDER, Model
 
-JOBS = ("translate", "rewrite", "review", "code")
+JOBS = ("translate", "rewrite", "review", "code", "dict")
 
 # Name tokens that tend to work for each job. Live ids stay C after refresh,
 # so we cannot rely on min_tier="A".
 _JOB_HINTS: dict[str, tuple[str, ...]] = {
     "translate": (
+        "hy-mt", "minimax", "qwen", "glm", "gemma", "gpt-oss",
+        "nemotron", "kimi", "mistral",
+    ),
+    "dict": (
         "hy-mt", "minimax", "qwen", "glm", "gemma", "gpt-oss",
         "nemotron", "kimi", "mistral",
     ),
@@ -40,6 +44,7 @@ _JOB_HINTS: dict[str, tuple[str, ...]] = {
 # Prefer these hosts for a job (first-party / local / fast free-tier).
 _JOB_PROVIDERS: dict[str, tuple[str, ...]] = {
     "translate": ("minimax", "ollama", "cerebras", "groq"),
+    "dict": ("minimax", "ollama", "cerebras", "groq"),
     "rewrite": ("minimax", "googleai", "cerebras", "ollama"),
     "review": ("minimax", "cerebras", "groq", "nvidia"),
     "code": ("nvidia", "groq", "cerebras", "minimax"),
