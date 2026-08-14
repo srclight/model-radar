@@ -19,7 +19,21 @@
     "xai": "",
     "inferencenet": "",
     "sealion": "",
-    "minimax": "",
+    "minimax": {
+      "active": "coding-plan",
+      "keys": {
+        "coding-plan": "",
+        "paygo": ""
+      }
+    },
     "perplexity": ""
+  },
+  "providers": {
+    "cerebras": {
+      "enabled": true,
+      "spend_ok": false,
+      "funded": false,
+      "login": "github:youruser"
+    }
   }
 }

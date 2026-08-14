@@ -567,6 +567,9 @@ def _provider_models_to_db_rows(
         if is_free is None and (m.model_id or "").lower():
             if ":free" in (m.model_id or "").lower() or "-free" in (m.model_id or "").lower():
                 is_free = True
+        if is_free is None:
+            from .cost import default_is_free
+            is_free = default_is_free(provider_key)
         seed = seeds.get(m.model_id)
         if seed:
             _sid, seed_label, tier, swe, seed_ctx = seed

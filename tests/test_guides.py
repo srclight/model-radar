@@ -35,6 +35,8 @@ def test_guide_specific_provider():
     assert "steps" in result
     assert result["already_configured"] is False
     assert "configure_command" in result
+    assert result["lane"] == "A"
+    assert "Lane A" in result["cost_hint"]
 
 
 def test_guide_configured_provider():
