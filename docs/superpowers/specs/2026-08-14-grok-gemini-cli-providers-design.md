@@ -1,13 +1,17 @@
 # Grok + Gemini CLI Providers for Model Radar — Design Spec
 
 **Date:** 2026-08-14
-**Status:** Draft (awaiting user review)
+**Status:** Phase 1 landed as v0.8.0 (Tasks 1–10). Phase 2 in progress (subscription-CLI correctness + Claude/Codex).
 **Author:** brainstorming session
 **Branch:** develop
 
 ## Goal
 
-Make Grok (via xAI SuperGrok subscription) and Gemini (via Google Workspaces subscription) usable through model-radar's existing `ask()`, `batch_run()`, `judge()`, and dashboard tools — so parallel reviews and translations from Claude Code ride the user's existing subscriptions instead of pay-as-you-go API credits.
+CLI providers exist so someone with a monthly subscription can run `ask` / `review` / `compare` without buying API credits. SuperGrok, Claude Pro/Max, Google Gemini via Antigravity (`agy`; the old `gemini` CLI was deprecated June 2026), and ChatGPT Plus/Pro (Codex) are access methods, not extra APIs.
+
+HTTPS API keys stay the default for free-tier hosts (NVIDIA, Groq, OpenRouter `:free`, …). The same vendor can have both doors: `anthropic` is the key, `claude` is the subscription.
+
+Phase 1 (v0.8.0) added the `kind="cli"` adapter for Grok and Gemini. Phase 2 makes that path actually usable and adds Claude (and Codex if installed) the same way.
 
 Equally add periodic refresh on server startup so the model catalog stays current.
 
@@ -213,12 +217,25 @@ results aggregated
   5. Call `ask("What is 2+2?", count=4)` — both CLI providers should respond if picked.
   6. Open dashboard at `http://localhost:8743/` — verify CLI providers section shows both as installed.
 
+## Phase 2 — leftover correctness + more subscriptions
+
+Phase 1 registered `grok`/`gemini` but they are not usable as compare backends yet:
+
+1. `get_configured_providers()` requires an API key, so `ask()` / `run()` / `get_fastest()` / `get_workers()` skip every CLI provider.
+2. Spawn args omit `-p` / `--single`, so the CLI can start a TUI or hang.
+3. Hardcoded grok ids (`grok-4`, `grok-3`, `grok-3-mini`) do not match live `grok models` (`grok-4.6`, `grok-4.5`).
+4. `complete_cli_provider()` indexes the provider as a dict, but runner/scanner pass the `Provider` dataclass.
+5. Auto-pick (`get_fastest`, default `ask`, `get_workers`) must **not** silently burn a Max/Pro quota. CLI is opt-in via `model_ids` or `providers=["claude","grok",…]`.
+6. Spawn must be single-turn completion: temp cwd, no tools, plan/permission-deny — not an agent in the model-radar repo.
+
+Add `claude` (and `codex` if on PATH) via the same `CLI_SPECS` table. `ask(model_ids=…)` / `ask(providers=…)` is how a host sends one writing review to several subscriptions at once.
+
 ## Out of scope
 
 - **Browser-session bridge** (Playwright route to ride the web UI directly). Fragile, TOS-questionable, and the CLI tools make it unnecessary. Parked.
-- **Other CLI providers** (e.g. `claude`, `codex`, `aider`). Pattern is generic; add later if needed.
+- **Aider / Open Interpreter / Cursor / the `openai` Python SDK CLI.** Those are agents or key wrappers, not subscription riders.
 - **Periodic refresh interval** (every 6h, etc.). User chose "on startup only" — no periodic loop.
-- **Subscription tier detection** (Pro vs Free). Both CLIs default to the user's highest-available model; no programmatic tier detection.
+- **Subscription tier detection** (Pro vs Free). CLIs default to the user's highest-available model; no programmatic tier detection.
 
 ## Risks
 

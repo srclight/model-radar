@@ -13,6 +13,18 @@ from model_radar.cli_provider import (
     register_cli_providers,
 )
 
+_CLI_KEYS = ("grok", "gemini", "claude", "codex")
+
+
+@pytest.fixture
+def restore_cli_providers():
+    """Re-detect subscription CLIs after tests that mutate PROVIDERS."""
+    yield
+    from model_radar.providers import PROVIDERS
+    for k in _CLI_KEYS:
+        PROVIDERS.pop(k, None)
+    register_cli_providers()
+
 
 def _provider(cmd="grok", cmd_args=("--output-format", "json"), model_flag="-m"):
     return {
@@ -76,12 +88,13 @@ async def test_complete_cli_provider_success():
     assert result["provider_key"] == "grok"
     assert result["model_id"] == "grok-4"
     assert result["latency_ms"] >= 0  # mocked subprocess is instantaneous
-    # Verify cmd was passed correctly
+    # Headless subscription call: -p <prompt>, not a TUI positional.
     args = mock_exec.call_args.args
     assert "grok" in args
     assert "-m" in args
     assert "grok-4" in args
-    assert "hi" in args
+    assert "-p" in args
+    assert args[args.index("-p") + 1] == "hi"
 
 
 @pytest.mark.asyncio
@@ -98,7 +111,9 @@ async def test_complete_cli_provider_nonzero_exit():
     with patch("asyncio.create_subprocess_exec", return_value=fake_proc):
         with pytest.raises(CLIProviderError) as exc:
             await complete_cli_provider(_provider(), model, [{"role": "user", "content": "hi"}])
-    assert "exit 1" in str(exc.value).lower()
+    msg = str(exc.value).lower()
+    assert "not authenticated" in msg
+    assert "grok login" in msg
 
 
 @pytest.mark.asyncio
@@ -159,16 +174,16 @@ async def test_complete_cli_provider_with_system_prompt():
         )
 
     args = mock_exec.call_args.args
-    prompt_arg = args[-1]
+    prompt_arg = args[args.index("-p") + 1]
     assert "Be brief." in prompt_arg
     assert "hi" in prompt_arg
 
 
-def test_register_cli_providers_detects_grok(monkeypatch):
+def test_register_cli_providers_detects_grok(restore_cli_providers, monkeypatch):
     """register_cli_providers() registers 'grok' provider when binary is on PATH."""
     from model_radar.providers import PROVIDERS
     for k in list(PROVIDERS.keys()):
-        if k in ("grok", "gemini"):
+        if k in _CLI_KEYS:
             del PROVIDERS[k]
 
     monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/grok" if cmd == "grok" else None)
@@ -177,28 +192,46 @@ def test_register_cli_providers_detects_grok(monkeypatch):
     assert "grok" in PROVIDERS
     assert PROVIDERS["grok"].kind == "cli"
     assert PROVIDERS["grok"].cmd == "grok"
+    assert PROVIDERS["grok"].prompt_flag == "-p"
 
 
-def test_register_cli_providers_detects_gemini(monkeypatch):
-    """register_cli_providers() registers 'gemini' provider when binary is on PATH."""
+def test_register_cli_providers_detects_agy(restore_cli_providers, monkeypatch):
+    """register_cli_providers() registers gemini provider when `agy` is on PATH."""
     from model_radar.providers import PROVIDERS
     for k in list(PROVIDERS.keys()):
-        if k in ("grok", "gemini"):
+        if k in _CLI_KEYS:
             del PROVIDERS[k]
 
-    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/gemini" if cmd == "gemini" else None)
+    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/agy" if cmd == "agy" else None)
     register_cli_providers()
 
     assert "gemini" in PROVIDERS
     assert PROVIDERS["gemini"].kind == "cli"
-    assert PROVIDERS["gemini"].cmd == "gemini"
+    assert PROVIDERS["gemini"].cmd == "agy"
+    assert PROVIDERS["gemini"].model_flag == "--model"
 
 
-def test_register_cli_providers_skips_missing(monkeypatch):
-    """register_cli_providers() skips 'grok' and 'gemini' when binaries are absent."""
+def test_register_cli_providers_detects_claude(restore_cli_providers, monkeypatch):
+    """register_cli_providers() registers 'claude' when Claude Code is on PATH."""
     from model_radar.providers import PROVIDERS
     for k in list(PROVIDERS.keys()):
-        if k in ("grok", "gemini"):
+        if k in _CLI_KEYS:
+            del PROVIDERS[k]
+
+    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/claude" if cmd == "claude" else None)
+    register_cli_providers()
+
+    assert "claude" in PROVIDERS
+    assert PROVIDERS["claude"].kind == "cli"
+    assert PROVIDERS["claude"].cmd == "claude"
+    assert PROVIDERS["claude"].model_flag == "--model"
+
+
+def test_register_cli_providers_skips_missing(restore_cli_providers, monkeypatch):
+    """register_cli_providers() skips subscription CLIs when binaries are absent."""
+    from model_radar.providers import PROVIDERS
+    for k in list(PROVIDERS.keys()):
+        if k in _CLI_KEYS:
             del PROVIDERS[k]
 
     monkeypatch.setattr("shutil.which", lambda cmd: None)
@@ -206,3 +239,20 @@ def test_register_cli_providers_skips_missing(monkeypatch):
 
     assert "grok" not in PROVIDERS
     assert "gemini" not in PROVIDERS
+    assert "claude" not in PROVIDERS
+    assert "codex" not in PROVIDERS
+
+
+def test_complete_accepts_provider_dataclass():
+    """Runner passes a Provider dataclass, not a dict."""
+    from model_radar.cli_provider import _as_mapping
+    from model_radar.providers import Provider
+
+    prov = Provider(
+        key="grok", name="Grok (Subscription)", url=None, env_vars=(),
+        models=(), kind="cli", cmd="grok", cmd_args=("--output-format", "json"),
+        prompt_via="arg", model_flag="-m", prompt_flag="-p",
+    )
+    mapped = _as_mapping(prov)
+    assert mapped["cmd"] == "grok"
+    assert mapped["prompt_flag"] == "-p"

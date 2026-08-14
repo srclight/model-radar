@@ -2,7 +2,7 @@
 model-radar MCP server.
 
 Exposes tools for AI agents to discover, ping, and select
-the fastest free coding LLM models across 21 providers.
+the fastest free coding LLM models across configured providers.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
 
+from .cli_provider import is_cli_provider
 from .config import (
     get_api_key,
     get_configured_providers,
@@ -29,9 +30,10 @@ from .scanner import ScanState, format_result, scan_models
 MCP_INSTRUCTIONS = """\
 model-radar: Free coding model discovery and execution for AI agents.
 
-Pings 219 free coding LLM models across 21 providers and ranks them by \
-real-time latency. Run prompts on the fastest model, verify answers across \
-multiple models, and benchmark quality — all through MCP tools.
+Pings free coding LLM models across HTTPS providers and subscription CLIs \
+(claude, grok, agy/gemini, codex) and ranks HTTPS models by real-time latency. \
+Run prompts on the fastest model, verify answers across multiple models, \
+or pin subscriptions for a parallel review — all through MCP tools.
 
 ## Quick start
 1. Call list_providers() to see which providers have API keys configured.
@@ -45,6 +47,7 @@ multiple models, and benchmark quality — all through MCP tools.
 - "Run this on a free model" → run(prompt, free_only=True)
 - "Best model for coding" / "fastest model" → get_fastest(min_tier="A", count=5)
 - "Compare answers from several models" → ask(prompt, count=3)
+- "Review this on Claude + Grok + Gemini" → ask(prompt, providers=["claude","grok","gemini"])
 - "Refresh the model list from the internet" → refresh_models()
 - "Run these prompts in batch" → batch_run(prompts=[{"prompt": "..."}, ...])
 - "Check which models actually work" → scan(verify=True) or get_fastest(verified=True)
@@ -52,7 +55,7 @@ multiple models, and benchmark quality — all through MCP tools.
 - "Evaluate this translation" → backtranslate_eval(text, translation, source_lang, target_lang)
 
 ## Tool guide — Discovery
-- list_providers() — See all 21 providers and which have API keys. Call first when unsure.
+- list_providers() — See all providers, API-key status, and which subscription CLIs are installed. Call first when unsure.
 - list_models(tier?, provider?, min_tier?, free_only?) — Browse catalog without pinging. \
   model_id = code name to use when inserting/configuring (API, Cursor, run()); label = display only. \
   min_tier="A" means A or better. free_only=true for free only. Response includes is_free when known.
@@ -66,7 +69,9 @@ multiple models, and benchmark quality — all through MCP tools.
 ## Tool guide — Execution
 - run(prompt, free_only?, model_id?, provider?, min_tier?, ...) — Run a prompt on the fastest model. \
   Use free_only=true when the user wants a free model. Retries on next fastest if one fails.
-- ask(prompt, count=3, ...) — Run the same prompt on N models in parallel; compare responses.
+- ask(prompt, count=3, model_ids?, providers?, ...) — Run the same prompt on N models in parallel. \
+  Pin subscriptions with providers=["claude","grok","gemini"] or model_ids=["sonnet","grok-4.6"]. \
+  Default ask never spends a monthly plan.
 - batch_run(prompts, ...) — Run multiple prompts with bounded concurrency. For translation pipelines, \
   data extraction, classification. Auto-retries failed items on alternate models. \
   Set results_file for incremental JSONL output and resume support.
@@ -136,33 +141,40 @@ _state = ScanState()
 
 @mcp.tool()
 async def list_providers() -> str:
-    """List all 21 providers with their status (configured/unconfigured, enabled/disabled, model count).
+    """List all providers with status (configured/unconfigured, kind, model count).
 
-    Call this first to see which providers you have API keys for.
+    Call this first to see which providers you have API keys for, and which
+    subscription CLIs (claude, grok, gemini, codex) are installed on PATH.
     No network requests — instant response.
     """
+    import shutil
     cfg = load_config()
     rows = []
     total_models = 0
-    configured_count = 0
+    configured = set(get_configured_providers(cfg))
     for key, prov in PROVIDERS.items():
         has_key = get_api_key(cfg, key) is not None
         enabled = is_provider_enabled(cfg, key)
+        kind = getattr(prov, "kind", "https")
         n = len(prov.models)
         total_models += n
-        if has_key:
-            configured_count += 1
-        rows.append({
+        row = {
             "provider": prov.name,
             "key": key,
             "models": n,
-            "api_key": "configured" if has_key else "missing",
+            "kind": kind,
+            "access": "cli" if kind == "cli" else ("local" if key == "ollama" else "api_key"),
+            "api_key": "configured" if has_key else ("n/a" if kind == "cli" else "missing"),
+            "configured": key in configured,
             "enabled": enabled,
             "env_vars": list(prov.env_vars),
-        })
+        }
+        if kind == "cli":
+            row["installed"] = bool(prov.cmd and shutil.which(prov.cmd))
+        rows.append(row)
     return json.dumps({
         "total_providers": len(PROVIDERS),
-        "configured": configured_count,
+        "configured": len(configured),
         "total_models": total_models,
         "providers": rows,
     }, indent=2)
@@ -283,6 +295,10 @@ async def get_fastest(
         configured_only=True, free_only=free_only, limit=count * 2 if verified else count,
         state=_state, verify=verified,
     )
+    # Subscription CLIs are opt-in (model_ids / providers=) — do not rank them as "fastest"
+    # unless the caller named that CLI provider.
+    if not (provider and is_cli_provider(provider)):
+        results = [r for r in results if not is_cli_provider(r.model.provider)]
     # Only return models that are actually up
     up_results = [r for r in results if r.status == "up"][:count]
     rows = [format_result(r, _state) for r in up_results]
@@ -490,24 +506,25 @@ async def ask(
     count: int = 3,
     min_tier: str = "A",
     provider: str | None = None,
+    providers: list[str] | None = None,
+    model_ids: list[str] | None = None,
     max_tokens: int = 4096,
     temperature: float = 0.0,
 ) -> str:
     """Run the same prompt on multiple models in parallel and return all responses.
 
-    Use this for verification and consensus. When accuracy matters more than
-    speed, ask N models the same question and compare their answers. If 3/3
-    models agree, you can be more confident in the result.
-
-    Returns all responses side-by-side with model info, latency, and quality
-    scores (if previously benchmarked).
+    Use this for verification, consensus, and writing reviews. Pin subscription
+    CLIs (claude, grok, gemini, codex) with model_ids or providers — they are
+    never auto-picked, so a monthly plan is not spent by accident.
 
     Args:
         prompt: The question or task to send to all models
         system_prompt: Optional system prompt applied to all models
         count: How many models to query in parallel (default 3)
         min_tier: Minimum quality tier for model selection (default "A")
-        provider: Limit to a specific provider (nvidia, groq, etc.)
+        provider: Limit auto-pick to one provider (nvidia, groq, claude, …)
+        providers: Explicit provider list, e.g. ["claude", "grok", "gemini"]
+        model_ids: Explicit models, e.g. ["sonnet", "grok-4.6"] or "claude/sonnet"
         max_tokens: Max response tokens per model (default 4096)
         temperature: Sampling temperature (default 0.0 for deterministic)
     """
@@ -519,6 +536,8 @@ async def ask(
         count=count,
         min_tier=min_tier,
         provider=provider,
+        providers=providers,
+        model_ids=model_ids,
         max_tokens=max_tokens,
         temperature=temperature,
         state=_state,
@@ -778,6 +797,8 @@ async def get_workers(
         limit=count * 4, state=_state, verify=verified,
     )
     up_results = [r for r in results if r.status == "up"]
+    # Batch/translation workers should not silently spend Max/Pro quota.
+    up_results = [r for r in up_results if not is_cli_provider(r.model.provider)]
 
     # Enforce provider diversity: 1 model per provider, best first
     seen_providers: set[str] = set()
@@ -1001,11 +1022,13 @@ def create_server() -> FastMCP:
         _server_start_time = time.time()
         # Schedule background refresh on first server creation. If called before
         # an event loop exists (stdio startup), the task runs on the next loop tick.
-        try:
-            asyncio.ensure_future(_startup_refresh())
-        except RuntimeError:
-            # No event loop yet; refresh will be skipped but server still works.
-            pass
+        # Skip live catalog fetch under pytest (avoids hanging the suite on provider APIs).
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                asyncio.ensure_future(_startup_refresh())
+            except RuntimeError:
+                # No event loop yet; refresh will be skipped but server still works.
+                pass
     return mcp
 
 
