@@ -995,11 +995,32 @@ async def server_stats() -> str:
 
 
 def create_server() -> FastMCP:
-    """Return the MCP server instance."""
+    """Return the MCP server instance. Kicks off background refresh on first call."""
     global _server_start_time
     if _server_start_time is None:
         _server_start_time = time.time()
+        # Schedule background refresh on first server creation. If called before
+        # an event loop exists (stdio startup), the task runs on the next loop tick.
+        try:
+            asyncio.ensure_future(_startup_refresh())
+        except RuntimeError:
+            # No event loop yet; refresh will be skipped but server still works.
+            pass
     return mcp
+
+
+async def _startup_refresh() -> None:
+    """Background task: refresh model catalog from live APIs. Errors are logged, never raised."""
+    try:
+        from .provider_sync import refresh_models_from_live
+        counts = await refresh_models_from_live()
+        total = sum(counts.values()) if counts else 0
+        if total > 0:
+            import sys
+            print(f"[model-radar] startup refresh: {counts} (total {total})", file=sys.stderr)
+    except Exception as e:
+        import sys
+        print(f"[model-radar] startup refresh failed: {e}", file=sys.stderr)
 
 
 def make_sse_and_streamable_http_app(mount_path: str | None = "/") -> "Starlette":
