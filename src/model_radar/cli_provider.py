@@ -18,6 +18,7 @@ import shutil
 import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -42,6 +43,7 @@ class CliSpec:
     cmd_args: tuple[str, ...] = ()
     login_hint: str = ""
     install_hint: str = ""
+    last_message_file: str | None = None  # if set, read this file in cwd instead of JSON stdout
 
 
 # Subscription CLIs only — binaries that ride a monthly plan, not an API key.
@@ -104,13 +106,20 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         name="Codex (Subscription)",
         cmd="codex",
         model_flag="-m",
-        prompt_flag="-p",
-        cmd_args=("--json",),
+        prompt_flag="",  # prompt is the last positional; -p is --profile
+        cmd_args=(
+            "exec",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "-s", "read-only",
+            "--output-last-message", "last.txt",
+        ),
         models=(
-            ("gpt-5", "GPT-5 (Subscription)", "S+", "72.0%", "256k"),
+            ("gpt-5.6-terra", "GPT-5.6 Terra (Subscription)", "S+", "72.0%", "256k"),
         ),
         login_hint="codex login",
-        install_hint="npm install -g @openai/codex",
+        install_hint="https://github.com/openai/codex",
+        last_message_file="last.txt",
     ),
 )
 
@@ -135,6 +144,7 @@ def _as_mapping(provider: Any) -> dict:
         "prompt_via": getattr(provider, "prompt_via", "arg"),
         "model_flag": getattr(provider, "model_flag", "-m"),
         "prompt_flag": getattr(provider, "prompt_flag", "-p"),
+        "last_message_file": getattr(provider, "last_message_file", None),
     }
 
 
@@ -177,10 +187,13 @@ def _build_subprocess_args(provider: dict, model_id: str, prompt: str) -> tuple[
     args = [cmd, *cmd_args, model_flag, model_id]
     kwargs: dict = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
     if provider.get("prompt_via", "arg") == "stdin":
-        args.append(prompt_flag)
+        if prompt_flag:
+            args.append(prompt_flag)
         kwargs["stdin"] = asyncio.subprocess.PIPE
-    else:
+    elif prompt_flag:
         args.extend([prompt_flag, prompt])
+    else:
+        args.append(prompt)
     return args, kwargs
 
 
@@ -287,6 +300,9 @@ async def complete_cli_provider(
     prompt, _ = _read_text_message(messages)
     model_id = model.model_id if hasattr(model, "model_id") else str(model)
 
+    spec = CLI_SPEC_BY_KEY.get(provider.get("key", ""))
+    last_file = spec.last_message_file if spec else None
+
     args, kwargs = _build_subprocess_args(provider, model_id, prompt)
     with tempfile.TemporaryDirectory(prefix="mr-cli-") as tmp:
         kwargs["cwd"] = tmp
@@ -310,17 +326,24 @@ async def complete_cli_provider(
                 f"CLI '{cmd}' timed out after {COMPLETE_TIMEOUT_SECONDS}s"
             ) from None
 
-    elapsed_ms = (time.monotonic() - start) * 1000
+        elapsed_ms = (time.monotonic() - start) * 1000
 
-    if proc.returncode != 0:
-        err = stderr.decode("utf-8", errors="replace").strip()[-500:]
-        auth = _auth_error_message(provider, err)
-        raise CLIProviderError(auth or f"CLI '{cmd}' exit {proc.returncode}: {err}")
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()[-500:]
+            auth = _auth_error_message(provider, err)
+            raise CLIProviderError(auth or f"CLI '{cmd}' exit {proc.returncode}: {err}")
 
-    if not stdout:
-        raise CLIProviderError(f"CLI '{cmd}' returned empty stdout")
-
-    content = _extract_response_text(stdout, provider["key"])
+        content = None
+        if last_file:
+            path = Path(tmp) / last_file
+            if path.is_file():
+                text = path.read_text(encoding="utf-8", errors="replace").strip()
+                if text:
+                    content = text
+        if content is None:
+            if not stdout:
+                raise CLIProviderError(f"CLI '{cmd}' returned empty stdout")
+            content = _extract_response_text(stdout, provider["key"])
 
     return {
         "content": content,
