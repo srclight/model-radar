@@ -14,6 +14,8 @@ import time
 from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from .cli_provider import is_cli_provider
 from .config import (
@@ -151,6 +153,35 @@ min_tier="A" means "A or better" (includes A+, S, S+).
 """
 
 mcp = FastMCP("model-radar", instructions=MCP_INSTRUCTIONS, stateless_http=True)
+
+
+def health_payload() -> dict:
+    """Process identity for update scripts. No secrets."""
+    from . import __version__
+    names = sorted(
+        getattr(t, "name", "")
+        for t in getattr(getattr(mcp, "_tool_manager", None), "list_tools", lambda: [])()
+        if getattr(t, "name", "")
+    )
+    if not names:
+        names = sorted(
+            n for n, fn in globals().items()
+            if callable(fn) and getattr(fn, "__mcp_tool__", False)
+        )
+    return {
+        "ok": True,
+        "version": __version__,
+        "listen": "127.0.0.1:8743",
+        "tools": names,
+        "has_still_free": "still_free" in names,
+    }
+
+
+async def _healthz(_request: Request) -> JSONResponse:
+    return JSONResponse(health_payload())
+
+
+mcp.custom_route("/healthz", ["GET"])(_healthz)
 
 # Shared scan state for rolling averages across calls within a session
 _state = ScanState()

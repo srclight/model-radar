@@ -13,21 +13,31 @@ ExecStart=…/.venv/bin/model-radar serve --transport sse --port 8743
 
 It binds `127.0.0.1:8743` (`/mcp` Streamable HTTP, `/sse` legacy). `Restart=always`.
 
-**Always restart the unit after code or catalog-path changes.** A stale process is how `ask(model_ids=…)` silently runs yesterday’s code.
+**Always restart the unit after code or catalog-path changes.** A stale process is how `ask(model_ids=…)` silently runs yesterday’s code. Restarting a *Grok/Cursor chat* does **not** reload the server — the client just reconnects to the same PID.
+
+Two restarts, in this order:
+
+1. **Unit** (new Python): `./scripts/restart-mcp.sh`
+2. **Agent session** (new tool list): quit/reopen Grok or Cursor
 
 ```sh
-# Preferred
+# After git pull / merge on develop:
+git -C ~/Projects/srclight/model-radar pull
+# editable venv — no pip install needed unless deps changed
 ./scripts/restart-mcp.sh
+# script prints old/new pid, package version, and GET /healthz
+# (has_still_free, tool names). Then restart this Grok session.
+```
 
+```sh
 # Equivalent
 systemctl --user restart model-radar.service
-# wait until 127.0.0.1:8743 accepts connections, then:
-#   list_providers() or server_stats()
+curl -sS http://127.0.0.1:8743/healthz
 ```
 
 Do **not** `kill` + `nohup` a second copy. The unit will respawn and you will fight bind errors (`address already in use`) and half-started refresh tasks.
 
-`restart_server()` from MCP is fine when the unit is the process manager (it exits 0, systemd starts a new one).
+`restart_server()` from MCP is fine when the unit is the process manager (it exits 0, systemd starts a new one). The *client* still needs a new session to see new tools.
 
 ## Keys
 
