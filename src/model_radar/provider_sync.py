@@ -267,24 +267,99 @@ async def fetch_huggingface_models(api_key: str | None = None) -> list[ProviderM
             return []
 
 
+async def fetch_xai_models(api_key: str | None = None) -> list[ProviderModel]:
+    """Fetch available models from xAI (Grok) API.
+
+    Args:
+        api_key: xAI API key (required for listing)
+
+    Returns:
+        List of ProviderModel instances
+    """
+    if not api_key:
+        return []
+
+    url = "https://api.x.ai/v1/models"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "model-radar/0.8 (github.com/srclight/model-radar)",
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=headers, timeout=10.0)
+            resp.raise_for_status()
+            data = resp.json()
+            models = []
+            for item in data.get("data", []):
+                model_id = item.get("id", "")
+                models.append(ProviderModel(
+                    model_id=model_id,
+                    label=item.get("name") or model_id,
+                    provider="xai",
+                    created=item.get("created"),
+                    context_length=None,
+                    extra=item,
+                ))
+            return models
+        except Exception:
+            return []
+
+
+async def fetch_googleai_models(api_key: str | None = None) -> list[ProviderModel]:
+    """Fetch available models from Google AI Studio (Gemini).
+
+    Args:
+        api_key: Google AI API key (required for listing)
+
+    Returns:
+        List of ProviderModel instances
+    """
+    if not api_key:
+        return []
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    headers = {"User-Agent": "model-radar/0.8 (github.com/srclight/model-radar)"}
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=headers, timeout=10.0)
+            resp.raise_for_status()
+            data = resp.json()
+            models = []
+            for item in data.get("models", []):
+                model_id = item.get("name", "").replace("models/", "")
+                models.append(ProviderModel(
+                    model_id=model_id,
+                    label=item.get("displayName") or model_id,
+                    provider="googleai",
+                    context_length=(item.get("inputTokenLimit") or None),
+                    extra=item,
+                ))
+            return models
+        except Exception:
+            return []
+
+
 async def fetch_all_provider_models(
     provider: str | None = None,
 ) -> dict[str, list[ProviderModel]]:
     """
     Fetch models from all configured providers.
-    
+
     Args:
         provider: Optional provider filter (e.g., "openrouter", "nvidia", "groq")
-    
+
     Returns:
         Dict mapping provider key to list of models
     """
     cfg = load_config()
     results = {}
-    
+
     all_fetchable = [
         "openrouter", "nvidia", "groq",
         "cerebras", "sambanova", "siliconflow", "huggingface",
+        "xai", "googleai",
     ]
     providers_to_fetch = [provider] if provider else all_fetchable
 
@@ -296,6 +371,8 @@ async def fetch_all_provider_models(
         "sambanova": fetch_sambanova_models,
         "siliconflow": fetch_siliconflow_models,
         "huggingface": fetch_huggingface_models,
+        "xai": fetch_xai_models,
+        "googleai": fetch_googleai_models,
     }
 
     tasks = []
