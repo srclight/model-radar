@@ -99,5 +99,17 @@ def is_provider_enabled(cfg: dict, provider_key: str) -> bool:
 
 
 def get_configured_providers(cfg: dict) -> list[str]:
-    """Return provider keys that have an API key configured."""
-    return [k for k in PROVIDERS if get_api_key(cfg, k) and is_provider_enabled(cfg, k)]
+    """Return provider keys that are usable right now.
+
+    HTTPS: an API key is present. CLI (subscription): the binary was
+    registered because it is on PATH — no key required.
+    """
+    out = []
+    for k, prov in PROVIDERS.items():
+        if not is_provider_enabled(cfg, k):
+            continue
+        if getattr(prov, "kind", "https") == "cli":
+            out.append(k)
+        elif get_api_key(cfg, k):
+            out.append(k)
+    return out

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Model Radar is an MCP server that discovers, pings, and executes prompts on free coding LLM models across 21 providers. It ranks models by real-time latency and helps AI agents pick the fastest available model.
+Model Radar is an MCP server that discovers, pings, and executes prompts on free coding LLM models across HTTPS providers, and rides monthly subscriptions via local CLIs (`claude`, `grok`, `agy`, `codex`). It ranks HTTPS models by real-time latency. Subscription CLIs are opt-in via `ask(model_ids=…)` / `ask(providers=…)`.
 
 ## Module Map
 

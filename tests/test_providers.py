@@ -27,8 +27,13 @@ def test_all_providers_defined():
     import shutil
     if shutil.which("grok"):
         assert "grok" in PROVIDERS
-    if shutil.which("gemini"):
+    if shutil.which("agy"):
         assert "gemini" in PROVIDERS
+        assert PROVIDERS["gemini"].cmd == "agy"
+    if shutil.which("claude"):
+        assert "claude" in PROVIDERS
+    if shutil.which("codex"):
+        assert "codex" in PROVIDERS
 
 
 def test_provider_has_models():

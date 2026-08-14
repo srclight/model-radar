@@ -40,11 +40,12 @@ class Provider:
     url: str
     env_vars: tuple[str, ...]
     models: tuple[tuple[str, str, str, str, str], ...]
-    kind: str = "https"  # "https" (default) or "cli"
+    kind: str = "https"  # "https" (default) or "cli" (rides a user subscription)
     cmd: str | None = None  # for cli: command name (e.g. "grok")
     cmd_args: tuple[str, ...] = ()  # for cli: extra args (e.g. ("--output-format", "json"))
-    prompt_via: str = "arg"  # for cli: "arg" (last positional) or "stdin"
+    prompt_via: str = "arg"  # for cli: "arg" (prompt_flag + prompt) or "stdin"
     model_flag: str = "-m"  # for cli: how to pass model id
+    prompt_flag: str = "-p"  # for cli: headless/single-turn flag (grok/gemini/claude)
 
 
 # ---------------------------------------------------------------------------
@@ -56,10 +57,11 @@ PROVIDERS: dict[str, Provider] = {}
 
 def _p(key: str, name: str, url: str | None, env_vars: tuple[str, ...], models: tuple,
        *, kind: str = "https", cmd: str | None = None, cmd_args: tuple[str, ...] = (),
-       prompt_via: str = "arg", model_flag: str = "-m"):
+       prompt_via: str = "arg", model_flag: str = "-m", prompt_flag: str = "-p"):
     PROVIDERS[key] = Provider(
         key=key, name=name, url=url, env_vars=env_vars, models=models,
-        kind=kind, cmd=cmd, cmd_args=cmd_args, prompt_via=prompt_via, model_flag=model_flag,
+        kind=kind, cmd=cmd, cmd_args=cmd_args, prompt_via=prompt_via,
+        model_flag=model_flag, prompt_flag=prompt_flag,
     )
 
 
@@ -455,6 +457,8 @@ def get_all_models() -> list[Model]:
     for pkey, prov in PROVIDERS.items():
         for model_id, label, tier, swe, ctx in prov.models:
             is_free = _model_id_suggests_free(model_id)
+            if is_free is None and getattr(prov, "kind", "https") == "cli":
+                is_free = True  # subscription CLI = free to the user
             models.append(Model(
                 model_id=model_id, label=label, tier=tier,
                 swe_score=swe, context=ctx, provider=pkey,
@@ -481,7 +485,7 @@ def filter_models(
 
 
 # ---------------------------------------------------------------------------
-# CLI providers — auto-detected via PATH (grok, gemini)
+# CLI providers — subscription riders, auto-detected via PATH (grok, agy, claude, codex)
 # ---------------------------------------------------------------------------
 # This must come AFTER all static _p() calls so it can safely overwrite.
 # Wrapped in try/except so the module loads even if PATH detection errors.

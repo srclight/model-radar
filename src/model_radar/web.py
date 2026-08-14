@@ -67,8 +67,8 @@ def _dashboard_html() -> str:
   <section id="cliProvidersSection">
     <h2>CLI providers (subscription)</h2>
     <p style="color: var(--muted); margin: 0 0 0.5rem; font-size: 0.9rem;">
-      Ride your SuperGrok or Google Workspaces subscription via the official CLI tools.
-      Auto-detected from PATH. No API key needed.
+      Ride SuperGrok, Claude Pro/Max, Gemini (Antigravity <code>agy</code>), or ChatGPT (Codex).
+      Auto-detected from PATH. No API key needed. Pin them with ask(providers=["claude","grok","gemini"]).
     </p>
     <div class="flex">
       <button type="button" id="btnRefresh">Refresh from live APIs</button>
@@ -235,7 +235,7 @@ def _dashboard_html() -> str:
         const providers = await api('/api/list_providers');
         const cli = providers.providers.filter(p => p.kind === 'cli');
         if (cli.length === 0) {
-          set('cliProvidersTable', 'No CLI providers detected. Install `grok` or `gemini` from PATH.', true);
+          set('cliProvidersTable', 'No CLI providers detected. Install grok, claude, or agy on PATH.', true);
         } else {
           const html = '<table><tr><th>Provider</th><th>Installed</th><th>Action</th></tr>' +
             cli.map(p =>

@@ -29,6 +29,57 @@ def _make_response(model_id, content):
 
 
 @pytest.mark.asyncio
+async def test_ask_pinned_model_ids():
+    """Pinned model_ids skip the scan and call exactly those models."""
+    called = []
+
+    async def mock_call(model, messages, cfg, max_tokens, temperature):
+        called.append(model.model_id)
+        return _make_response(model.model_id, f"from {model.model_id}")
+
+    with patch("model_radar.consensus.load_config", return_value={"api_keys": {}, "providers": {}}), \
+         patch("model_radar.consensus.scan_models", side_effect=AssertionError("scan should not run")), \
+         patch("model_radar.consensus._call_model", side_effect=mock_call), \
+         patch("model_radar.consensus.get_model_quality", return_value=None):
+        result = await ask_models(
+            prompt="review this",
+            model_ids=["llama-3.3-70b-versatile"],
+        )
+
+    assert "error" not in result
+    assert called == ["llama-3.3-70b-versatile"]
+    assert result["models_queried"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ask_pinned_providers():
+    """providers=['nvidia'] picks the best model on that provider, no scan."""
+    called = []
+
+    async def mock_call(model, messages, cfg, max_tokens, temperature):
+        called.append(model.provider)
+        return _make_response(model.model_id, "ok")
+
+    with patch("model_radar.consensus.load_config", return_value={"api_keys": {}, "providers": {}}), \
+         patch("model_radar.consensus.scan_models", side_effect=AssertionError("scan should not run")), \
+         patch("model_radar.consensus._call_model", side_effect=mock_call), \
+         patch("model_radar.consensus.get_model_quality", return_value=None):
+        result = await ask_models(prompt="review", providers=["nvidia"])
+
+    assert "error" not in result
+    assert called == ["nvidia"]
+
+
+@pytest.mark.asyncio
+async def test_ask_unknown_model_ids():
+    """Unknown pinned ids return a structured error, no silent substitute."""
+    with patch("model_radar.consensus.load_config", return_value={"api_keys": {}, "providers": {}}):
+        result = await ask_models(prompt="hi", model_ids=["definitely-not-a-model"])
+    assert "error" in result
+    assert "definitely-not-a-model" in result["unknown"]
+
+
+@pytest.mark.asyncio
 async def test_ask_no_models():
     """Should return error when no models available."""
     with patch("model_radar.consensus.load_config", return_value={"api_keys": {}, "providers": {}}), \

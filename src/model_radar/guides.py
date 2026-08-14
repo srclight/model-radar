@@ -8,6 +8,7 @@ not human reading.
 
 from __future__ import annotations
 
+from .cli_provider import CLI_SPEC_BY_KEY, is_cli_provider
 from .config import get_api_key, load_config
 from .providers import PROVIDERS
 
@@ -181,6 +182,76 @@ _GUIDES: dict[str, dict] = {
         "key_format": "sk-...",
         "priority": "LOW — useful for Chinese models like Qwen, DeepSeek.",
     },
+    "xai": {
+        "name": "xAI (API key)",
+        "free_tier": "Pay-as-you-go Grok API. Prefer the grok CLI if you have SuperGrok.",
+        "model_count_note": "Grok models via api.x.ai.",
+        "signup_url": "https://console.x.ai",
+        "steps": [
+            "Go to console.x.ai and sign in with your X account.",
+            "Open API Keys and create a key.",
+            "Copy the key and call configure_key(provider='xai', api_key=...).",
+        ],
+        "env_var": "XAI_API_KEY",
+        "key_format": "xai-...",
+        "priority": "LOW — only needed if you want the API instead of SuperGrok.",
+    },
+    "grok": {
+        "name": "Grok (Subscription)",
+        "free_tier": "Rides your SuperGrok / grok.com subscription. No API key.",
+        "model_count_note": "grok-4.6, grok-4.5 via the grok CLI.",
+        "signup_url": "https://docs.x.ai/build/overview",
+        "steps": [
+            "Install the Grok Build CLI from https://docs.x.ai/build/overview (or `grok` on PATH).",
+            "Run `grok login` and complete the X OAuth flow.",
+            "Verify with `grok models`. model-radar picks it up on the next server start.",
+        ],
+        "env_var": "",
+        "key_format": "none — subscription login",
+        "priority": "HIGH — use this if you already pay for SuperGrok.",
+    },
+    "gemini": {
+        "name": "Gemini (Antigravity Subscription)",
+        "free_tier": "Rides your Google AI Pro/Ultra or Gemini subscription via Antigravity CLI (`agy`). No API key. The old `gemini` CLI was deprecated June 2026.",
+        "model_count_note": "Gemini 3.x Pro/Flash via `agy`.",
+        "signup_url": "https://antigravity.google/docs/cli/install",
+        "steps": [
+            "Install Antigravity CLI: `curl -fsSL https://antigravity.google/cli/install.sh | bash`.",
+            "Put `~/.local/bin` on PATH if needed, then run `agy` once and sign in with Google in the browser.",
+            "Verify with `agy models`. Restart model-radar so the `gemini` provider appears.",
+        ],
+        "env_var": "",
+        "key_format": "none — subscription login",
+        "priority": "HIGH — use this if you already pay for Gemini / Google AI Pro/Ultra.",
+    },
+    "claude": {
+        "name": "Claude (Subscription)",
+        "free_tier": "Rides your Claude Pro/Max subscription via Claude Code. No API key.",
+        "model_count_note": "opus / sonnet / haiku aliases.",
+        "signup_url": "https://docs.anthropic.com/en/docs/claude-code",
+        "steps": [
+            "Install Claude Code from https://docs.anthropic.com/en/docs/claude-code.",
+            "Run `claude auth login` (or use an existing Claude Code login).",
+            "Verify with `claude --version`. Restart model-radar to register it.",
+        ],
+        "env_var": "",
+        "key_format": "none — subscription login",
+        "priority": "HIGH — use this if you already pay for Claude Pro/Max.",
+    },
+    "codex": {
+        "name": "Codex (Subscription)",
+        "free_tier": "Rides your ChatGPT Plus/Pro subscription via the Codex CLI. No API key.",
+        "model_count_note": "ChatGPT models via `codex`.",
+        "signup_url": "https://github.com/openai/codex",
+        "steps": [
+            "Install the Codex CLI (`npm install -g @openai/codex` or see GitHub).",
+            "Run `codex login` and complete the ChatGPT OAuth flow.",
+            "Restart model-radar so it registers the binary.",
+        ],
+        "env_var": "",
+        "key_format": "none — subscription login",
+        "priority": "HIGH — use this if you already pay for ChatGPT Plus/Pro.",
+    },
 }
 
 # Providers with no guide yet (uncommon or complex setup)
@@ -197,16 +268,29 @@ def get_setup_guide(provider_key: str | None = None) -> dict:
     cfg = load_config()
 
     if provider_key:
-        if provider_key not in PROVIDERS:
-            available = ", ".join(sorted(PROVIDERS.keys()))
+        guide = _GUIDES.get(provider_key)
+        if provider_key not in PROVIDERS and provider_key not in CLI_SPEC_BY_KEY:
+            available = ", ".join(sorted(set(PROVIDERS) | set(CLI_SPEC_BY_KEY)))
             return {
                 "error": f"Unknown provider '{provider_key}'. Available: {available}",
             }
-        guide = _GUIDES.get(provider_key)
         if not guide:
             return {
                 "provider": provider_key,
                 "message": f"No setup guide available for {provider_key} yet.",
+            }
+        if is_cli_provider(provider_key) or provider_key in CLI_SPEC_BY_KEY:
+            installed = provider_key in PROVIDERS
+            return {
+                "provider": provider_key,
+                "already_configured": installed,
+                "access": "cli",
+                **guide,
+                "configure_command": (
+                    "Already installed — restart model-radar if it is not listed."
+                    if installed
+                    else "Install the CLI and log in (no API key). Then restart model-radar."
+                ),
             }
         has_key = get_api_key(cfg, provider_key) is not None
         return {
@@ -223,7 +307,6 @@ def get_setup_guide(provider_key: str | None = None) -> dict:
     configured = []
 
     for pkey in PROVIDERS:
-        has_key = get_api_key(cfg, pkey) is not None
         guide = _GUIDES.get(pkey)
         if not guide:
             continue
@@ -233,11 +316,28 @@ def get_setup_guide(provider_key: str | None = None) -> dict:
             "priority": guide["priority"],
             "free_tier": guide["free_tier"],
             "signup_url": guide["signup_url"],
+            "access": "cli" if is_cli_provider(pkey) else "api_key",
         }
-        if has_key:
+        if is_cli_provider(pkey) or get_api_key(cfg, pkey) is not None:
             configured.append(pkey)
         else:
             unconfigured.append(entry)
+
+    # Subscription CLIs not on PATH still get a guide so the host can tell the user.
+    for spec in CLI_SPEC_BY_KEY.values():
+        if spec.key in PROVIDERS:
+            continue
+        guide = _GUIDES.get(spec.key)
+        if not guide:
+            continue
+        unconfigured.append({
+            "provider": spec.key,
+            "name": guide["name"],
+            "priority": guide["priority"],
+            "free_tier": guide["free_tier"],
+            "signup_url": guide["signup_url"],
+            "access": "cli",
+        })
 
     unconfigured.sort(key=lambda x: priority_order.get(
         x["priority"].split(" ")[0], 9))

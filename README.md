@@ -1,7 +1,7 @@
 <!-- mcp-name: io.github.srclight/model-radar -->
 # model-radar
 
-MCP server that pings 219+ free coding LLM models across 21 providers in real-time, ranks them by latency, and helps AI agents pick the fastest available model.
+MCP server that pings free coding LLM models across HTTPS providers and subscription CLIs (Claude Code, Grok, Antigravity/`agy`, Codex), ranks them by latency, and helps AI agents pick the fastest available model — or pin several subscriptions for a parallel review.
 
 Inspired by [free-coding-models](https://github.com/vava-nessa/free-coding-models).
 
@@ -132,10 +132,30 @@ model-radar configure nvidia nvapi-xxx
 | SEA-LION | `SEALION_API_KEY` | Free tier |
 | Ollama | `OLLAMA_API_KEY` | Local, free |
 
+## CLI subscriptions
+
+If you already pay for a monthly plan, model-radar can ride that subscription — no API key. The official CLI is auto-detected from `$PATH` at startup.
+
+| CLI | Rides | Login |
+|-----|--------|--------|
+| `claude` | Claude Pro / Max | `claude auth login` |
+| `grok` | SuperGrok | `grok login` |
+| `agy` (provider key `gemini`) | Google AI Pro/Ultra / Gemini | run `agy` once to sign in |
+| `codex` | ChatGPT Plus / Pro | `codex login` |
+
+The old `gemini` CLI was deprecated (June 2026) in favor of [Antigravity CLI](https://antigravity.google/docs/cli/install) (`agy`). Install: `curl -fsSL https://antigravity.google/cli/install.sh | bash`.
+
+These never join `get_fastest()` / default `ask()` — that would spend quota by accident. Pin them:
+
+```
+ask(prompt="Review this paragraph…", providers=["claude", "grok", "gemini"])
+ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
+```
+
 ## MCP Tools
 
 ### Discovery
-- **`list_providers()`** — See all 21 providers with config status
+- **`list_providers()`** — See all providers, API-key status, and installed subscription CLIs
 - **`list_models(tier?, provider?, min_tier?, free_only?)`** — Browse the model catalog
 - **`scan(verify?)`** — Ping models in parallel, ranked by latency. `verify=True` checks for non-empty output.
 - **`get_fastest(min_tier?, count?, free_only?, verified?)`** — Best N models right now
