@@ -32,6 +32,28 @@ async def _call_model(
     throttle: ProviderThrottle | None = None,
 ) -> dict:
     """Send a chat/completions request to a model and return the response."""
+    # CLI provider (subprocess) — not HTTP
+    from .providers import PROVIDERS as _PROVIDERS
+    prov = _PROVIDERS.get(model.provider)
+    if prov and prov.kind == "cli":
+        from .cli_provider import complete_cli_provider
+        try:
+            result = await complete_cli_provider(
+                prov, model, messages,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            content, think_content = strip_think_tags(result["content"])
+            result["content"] = content
+            if think_content:
+                result["think_content"] = think_content
+            return result
+        except Exception as e:
+            return {
+                "error": str(e),
+                "model": model.label,
+                "provider": prov.name,
+                "provider_key": model.provider,
+            }
     api_key = get_api_key(cfg, model.provider)
     if not api_key:
         return {"error": f"No API key for provider {model.provider}"}

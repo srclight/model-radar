@@ -40,6 +40,12 @@ class Provider:
     url: str
     env_vars: tuple[str, ...]
     models: tuple[tuple[str, str, str, str, str], ...]
+    kind: str = "https"  # "https" (default) or "cli" (rides a user subscription)
+    cmd: str | None = None  # for cli: command name (e.g. "grok")
+    cmd_args: tuple[str, ...] = ()  # for cli: extra args (e.g. ("--output-format", "json"))
+    prompt_via: str = "arg"  # for cli: "arg" (prompt_flag + prompt) or "stdin"
+    model_flag: str = "-m"  # for cli: how to pass model id
+    prompt_flag: str = "-p"  # for cli: headless/single-turn flag (grok/gemini/claude)
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +55,14 @@ class Provider:
 PROVIDERS: dict[str, Provider] = {}
 
 
-def _p(key: str, name: str, url: str, env_vars: tuple[str, ...], models: tuple):
-    PROVIDERS[key] = Provider(key=key, name=name, url=url, env_vars=env_vars, models=models)
+def _p(key: str, name: str, url: str | None, env_vars: tuple[str, ...], models: tuple,
+       *, kind: str = "https", cmd: str | None = None, cmd_args: tuple[str, ...] = (),
+       prompt_via: str = "arg", model_flag: str = "-m", prompt_flag: str = "-p"):
+    PROVIDERS[key] = Provider(
+        key=key, name=name, url=url, env_vars=env_vars, models=models,
+        kind=kind, cmd=cmd, cmd_args=cmd_args, prompt_via=prompt_via,
+        model_flag=model_flag, prompt_flag=prompt_flag,
+    )
 
 
 # --- NVIDIA NIM ---
@@ -293,6 +305,11 @@ _p("scaleway", "Scaleway", "https://api.scaleway.ai/v1/chat/completions",
 # --- Google AI ---
 _p("googleai", "Google AI", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
    ("GOOGLE_API_KEY",), (
+    # Gemini (Pro/Flash/Lite) — via Google AI Studio API
+    ("gemini-2.5-pro", "Gemini 2.5 Pro", "S+", "70.0%", "1M"),
+    ("gemini-2.5-flash", "Gemini 2.5 Flash", "S", "60.0%", "1M"),
+    ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", "A+", "55.0%", "1M"),
+    # Gemma (open weights)
     ("gemma-3-27b-it", "Gemma 3 27B", "B", "22.0%", "128k"),
     ("gemma-3-12b-it", "Gemma 3 12B", "C", "15.0%", "128k"),
     ("gemma-3-4b-it", "Gemma 3 4B", "C", "10.0%", "128k"),
@@ -440,6 +457,8 @@ def get_all_models() -> list[Model]:
     for pkey, prov in PROVIDERS.items():
         for model_id, label, tier, swe, ctx in prov.models:
             is_free = _model_id_suggests_free(model_id)
+            if is_free is None and getattr(prov, "kind", "https") == "cli":
+                is_free = True  # subscription CLI = free to the user
             models.append(Model(
                 model_id=model_id, label=label, tier=tier,
                 swe_score=swe, context=ctx, provider=pkey,
@@ -463,3 +482,17 @@ def filter_models(
         max_ord = TIER_ORDER[min_tier]
         models = [m for m in models if TIER_ORDER.get(m.tier, 99) <= max_ord]
     return models
+
+
+# ---------------------------------------------------------------------------
+# CLI providers — subscription riders, auto-detected via PATH (grok, agy, claude, codex)
+# ---------------------------------------------------------------------------
+# This must come AFTER all static _p() calls so it can safely overwrite.
+# Wrapped in try/except so the module loads even if PATH detection errors.
+from .cli_provider import register_cli_providers as _register_cli_providers
+
+try:
+    _register_cli_providers()
+except Exception:
+    # CLI providers are optional; don't crash static imports.
+    pass

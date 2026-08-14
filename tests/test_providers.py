@@ -11,7 +11,9 @@ from model_radar.providers import (
 
 
 def test_all_providers_defined():
-    """All 17 providers should be registered."""
+    """All known providers should be registered. CLI providers (grok, gemini) are
+    conditionally registered when their binaries are on PATH, so they're checked
+    separately."""
     expected = {
         "nvidia", "groq", "cerebras", "sambanova", "openrouter",
         "huggingface", "replicate", "deepinfra", "fireworks", "codestral",
@@ -19,7 +21,19 @@ def test_all_providers_defined():
         "cloudflare", "perplexity", "xai", "inferencenet", "sealion",
         "ollama",
     }
-    assert set(PROVIDERS.keys()) == expected
+    # CLI providers may or may not be registered depending on PATH; allow extras.
+    assert set(PROVIDERS.keys()) >= expected
+    # CLI providers should be present if their binaries are on PATH
+    import shutil
+    if shutil.which("grok"):
+        assert "grok" in PROVIDERS
+    if shutil.which("agy"):
+        assert "gemini" in PROVIDERS
+        assert PROVIDERS["gemini"].cmd == "agy"
+    if shutil.which("claude"):
+        assert "claude" in PROVIDERS
+    if shutil.which("codex"):
+        assert "codex" in PROVIDERS
 
 
 def test_provider_has_models():
@@ -29,15 +43,21 @@ def test_provider_has_models():
 
 
 def test_provider_has_url():
-    """Every provider should have an API URL."""
+    """HTTPS providers should have an API URL; CLI providers have url=None."""
     for key, prov in PROVIDERS.items():
-        assert prov.url.startswith("http://") or prov.url.startswith("https://"), f"Provider {key} has invalid URL"
+        if prov.kind == "cli":
+            assert prov.url is None, f"CLI provider {key} should have url=None"
+        else:
+            assert prov.url.startswith("http://") or prov.url.startswith("https://"), f"Provider {key} has invalid URL"
 
 
 def test_provider_has_env_vars():
-    """Every provider should declare at least one env var."""
+    """HTTPS providers should declare at least one env var; CLI providers have none."""
     for key, prov in PROVIDERS.items():
-        assert len(prov.env_vars) > 0, f"Provider {key} has no env vars"
+        if prov.kind == "cli":
+            assert len(prov.env_vars) == 0, f"CLI provider {key} should have env_vars=()"
+        else:
+            assert len(prov.env_vars) > 0, f"Provider {key} has no env vars"
 
 
 def test_get_all_models():

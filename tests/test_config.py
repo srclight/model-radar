@@ -89,3 +89,29 @@ def test_get_configured_providers():
     configured = get_configured_providers(cfg)
     assert "nvidia" in configured
     assert "groq" not in configured  # disabled
+
+
+def test_get_configured_providers_includes_subscription_cli():
+    """A subscription CLI on PATH is configured even with no API key."""
+    from unittest.mock import patch
+
+    from model_radar.cli_provider import register_cli_providers
+    from model_radar.providers import PROVIDERS
+
+    cli_keys = ("grok", "gemini", "claude", "codex")
+    snapshot = {k: PROVIDERS[k] for k in cli_keys if k in PROVIDERS}
+    try:
+        for k in cli_keys:
+            PROVIDERS.pop(k, None)
+        with patch("shutil.which", lambda cmd: "/usr/bin/claude" if cmd == "claude" else None):
+            register_cli_providers()
+            cfg = {"api_keys": {}, "providers": {}}
+            configured = get_configured_providers(cfg)
+            assert "claude" in configured
+            assert "nvidia" not in configured
+    finally:
+        for k in cli_keys:
+            PROVIDERS.pop(k, None)
+        for k, v in snapshot.items():
+            PROVIDERS[k] = v
+        register_cli_providers()

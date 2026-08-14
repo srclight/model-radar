@@ -1,6 +1,7 @@
 """Tests for the web dashboard and REST API (--web with SSE)."""
 
 import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -39,9 +40,10 @@ async def test_web_routes_registered_and_dashboard_served():
     r = client.get("/api/list_providers")
     assert r.status_code == 200
     data = r.json()
-    assert "total_providers" in data
     assert "providers" in data
-    assert data["total_providers"] == 17
+    assert "total" in data
+    assert data["total"] >= 21
+    assert data["total"] == len(data["providers"])
 
 
 @pytest.mark.asyncio
@@ -73,3 +75,35 @@ async def test_api_server_stats():
     assert "started_at" in data
     assert "uptime_seconds" in data
     assert data["uptime_seconds"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_api_refresh_returns_counts():
+    """POST /api/refresh returns refreshed count and by_provider dict."""
+    from model_radar.web import _api_refresh
+    from unittest.mock import AsyncMock, patch
+
+    fake_counts = {"xai": 3, "googleai": 6}
+
+    with patch("model_radar.provider_sync.refresh_models_from_live",
+               return_value=fake_counts):
+        request = AsyncMock()
+        response = await _api_refresh(request)
+        body = json.loads(response.body.decode())
+        assert body["refreshed"] == 9
+        assert body["by_provider"] == fake_counts
+
+
+@pytest.mark.asyncio
+async def test_api_list_providers_includes_cli_kind():
+    """GET /api/list_providers includes 'kind' field for CLI providers."""
+    from model_radar.web import _api_list_providers
+
+    with patch("model_radar.config.load_config",
+               return_value={"api_keys": {}, "providers": {"grok": {"enabled": True}}}):
+        request = AsyncMock()
+        response = await _api_list_providers(request)
+        body = json.loads(response.body.decode())
+        grok = next(p for p in body["providers"] if p["key"] == "grok")
+        assert "kind" in grok
+        assert "installed" in grok
