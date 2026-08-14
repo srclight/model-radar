@@ -41,6 +41,18 @@ python scripts/catalog-report.py   # shows which keys are empty, never prints th
 
 Do not put a MiniMax token in `ANTHROPIC_AUTH_TOKEN` globally — that hijacks Claude Code. MiniMax’s Anthropic shim (`https://api.minimax.io/anthropic`) is for a dedicated Claude Code profile only. model-radar uses `https://api.minimax.io/v1` with `MINIMAX_API_KEY`.
 
+## Recommend + probe (agent loop)
+
+```
+recommend(job="translate")                 # 6 live chat models, no CLI
+recommend(job="review", include_subscriptions=True)
+quality_probe(job="translate", count=3)    # time + CJK check
+quality_probe(job="rewrite", model_ids=["minimax/MiniMax-M3"])
+quality_probe(job="review", providers=["minimax","cerebras"])
+```
+
+Jobs: `translate` (EN→ZH), `rewrite` (lemma-study sentence), `review` (bare `return` bug). CLI: `model-radar probe -j translate -n 3`.
+
 ## Pinning models (do not auto-spend subscriptions)
 
 `get_fastest()` / default `ask()` never pick CLI providers. Pin them:
