@@ -243,6 +243,27 @@ def test_register_cli_providers_skips_missing(restore_cli_providers, monkeypatch
     assert "codex" not in PROVIDERS
 
 
+def test_build_subprocess_args_positional_prompt():
+    """Codex uses a positional prompt; -p is --profile, not the prompt."""
+    from model_radar.cli_provider import _build_subprocess_args
+
+    args, _kwargs = _build_subprocess_args(
+        {
+            "cmd": "codex",
+            "cmd_args": ("exec", "--ephemeral"),
+            "model_flag": "-m",
+            "prompt_flag": "",
+        },
+        "gpt-5.6-terra",
+        "hello",
+    )
+    assert args[0] == "codex"
+    assert "exec" in args
+    assert "-p" not in args
+    assert args[-1] == "hello"
+    assert args[args.index("-m") + 1] == "gpt-5.6-terra"
+
+
 def test_complete_accepts_provider_dataclass():
     """Runner passes a Provider dataclass, not a dict."""
     from model_radar.cli_provider import _as_mapping
