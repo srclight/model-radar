@@ -9,6 +9,7 @@ import pytest
 from model_radar.cli_provider import (
     CLIProviderError,
     complete_cli_provider,
+    parse_cli_model_ids,
     ping_cli_provider,
     register_cli_providers,
 )
@@ -241,6 +242,21 @@ def test_register_cli_providers_skips_missing(restore_cli_providers, monkeypatch
     assert "gemini" not in PROVIDERS
     assert "claude" not in PROVIDERS
     assert "codex" not in PROVIDERS
+
+
+def test_parse_cli_model_ids_grok_and_agy():
+    grok_out = """You are logged in with grok.com.
+Default model: grok-4.6
+
+Available models:
+  * grok-4.6 (default)
+  - grok-4.5
+"""
+    assert parse_cli_model_ids(grok_out) == ["grok-4.6", "grok-4.5"]
+    agy_out = "gemini-3.7-flash-highGemini 3.7 Flash (High)\nclaude-sonnet-4-6Claude Sonnet 4.6\n"
+    ids = parse_cli_model_ids(agy_out)
+    assert "gemini-3.7-flash-high" in ids
+    assert "claude-sonnet-4-6" in ids
 
 
 def test_build_subprocess_args_positional_prompt():

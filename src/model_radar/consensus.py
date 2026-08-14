@@ -13,6 +13,18 @@ import asyncio
 from .cli_provider import is_cli_provider
 from .config import load_config
 from .providers import PROVIDERS, Model, get_all_models
+
+
+def _catalog_models() -> list[Model]:
+    """Prefer the live SQLite catalog; fall back to in-memory registry."""
+    try:
+        from .db import get_models_for_discovery
+        models = get_models_for_discovery()
+        if models:
+            return models
+    except Exception:
+        pass
+    return get_all_models()
 from .quality import get_model_quality
 from .runner import _call_model
 from .scanner import ScanState, scan_models
@@ -24,7 +36,7 @@ def resolve_model_ref(ref: str) -> Model | None:
     Exact model_id wins (NVIDIA ids contain slashes). Then provider/id
     if the left side is a known provider key.
     """
-    models = get_all_models()
+    models = _catalog_models()
     exact = [m for m in models if m.model_id == ref]
     if len(exact) == 1:
         return exact[0]
@@ -40,7 +52,7 @@ def resolve_model_ref(ref: str) -> Model | None:
 
 
 def _best_model_for_provider(provider_key: str) -> Model | None:
-    models = [m for m in get_all_models() if m.provider == provider_key]
+    models = [m for m in _catalog_models() if m.provider == provider_key]
     if not models:
         return None
     from .providers import TIER_ORDER

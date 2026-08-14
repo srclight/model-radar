@@ -506,6 +506,14 @@ async def refresh_models_from_live(
         rows = _provider_models_to_db_rows(models, provider_key)
         n = replace_provider_models(provider_key, rows)
         counts[provider_key] = n
+        # Keep the in-memory registry in sync so ask()/list_models see live ids.
+        try:
+            from .providers import set_provider_models
+            set_provider_models(provider_key, tuple(
+                (mid, label, tier, swe, ctx) for mid, label, tier, swe, ctx, _free in rows
+            ))
+        except Exception:
+            pass
     return counts
 
 
