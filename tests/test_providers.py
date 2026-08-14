@@ -37,8 +37,12 @@ def test_all_providers_defined():
 
 
 def test_provider_has_models():
-    """Every provider should have at least one model."""
+    """Every provider should have at least one model, except local catalogs
+    that are filled from the user's machine (Ollama may be empty if the
+    daemon is down)."""
     for key, prov in PROVIDERS.items():
+        if key == "ollama":
+            continue
         assert len(prov.models) > 0, f"Provider {key} has no models"
 
 

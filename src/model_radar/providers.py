@@ -65,6 +65,17 @@ def _p(key: str, name: str, url: str | None, env_vars: tuple[str, ...], models: 
     )
 
 
+def set_provider_models(key: str, models: tuple) -> None:
+    """Replace a provider's model tuple (live catalog). Other fields stay put."""
+    old = PROVIDERS[key]
+    PROVIDERS[key] = Provider(
+        key=old.key, name=old.name, url=old.url, env_vars=old.env_vars,
+        models=models, kind=old.kind, cmd=old.cmd, cmd_args=old.cmd_args,
+        prompt_via=old.prompt_via, model_flag=old.model_flag,
+        prompt_flag=old.prompt_flag,
+    )
+
+
 # --- NVIDIA NIM ---
 _p("nvidia", "NIM", "https://integrate.api.nvidia.com/v1/chat/completions",
    ("NVIDIA_API_KEY",), (
@@ -410,13 +421,9 @@ _p("sealion", "SEA-LION", "https://api.sea-lion.ai/v1/chat/completions",
 ))
 
 # --- Ollama (local, no key) ---
-# Seed is replaced at import if localhost:11434 answers /api/tags.
+# Catalog is whatever THIS machine has pulled. Empty until /api/tags answers.
 _p("ollama", "Ollama", "http://127.0.0.1:11434/v1/chat/completions",
-   ("OLLAMA_API_KEY",), (
-    ("gemma3:27b", "Gemma 3 27B (local)", "B", "22.0%", "128k"),
-    ("mistral-small3.2:24b", "Mistral Small 3.2 24B (local)", "B+", "30.0%", "128k"),
-    ("mistral-small:22b", "Mistral Small 22B (local)", "B+", "30.0%", "128k"),
-))
+   ("OLLAMA_API_KEY",), ())
 
 # --- Perplexity ---
 _p("perplexity", "Perplexity", "https://api.perplexity.ai/chat/completions",
@@ -457,8 +464,15 @@ def refresh_ollama_catalog_from_daemon(timeout: float = 1.5) -> int:
         rows.append((mid, mid, "A", "", "128k"))
     if not rows:
         return 0
-    _p("ollama", "Ollama", "http://127.0.0.1:11434/v1/chat/completions",
-       ("OLLAMA_API_KEY",), tuple(rows))
+    models = tuple(rows)
+    set_provider_models("ollama", models)
+    try:
+        from .db import replace_provider_models
+        replace_provider_models("ollama", [
+            (mid, label, tier, swe, ctx, True) for mid, label, tier, swe, ctx in models
+        ])
+    except Exception:
+        pass
     return len(rows)
 
 

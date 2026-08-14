@@ -1,5 +1,15 @@
 # Architecture
 
+## Catalogs are live, not hardcoded
+
+model-radar is for every user, not one machine. Provider **endpoints** (base URL, env var, CLI command) live in code. Model **ids** come from the user's world:
+
+- HTTPS: `refresh_models()` / startup fetch from each provider's `/models` API
+- Ollama: `GET http://127.0.0.1:11434/api/tags` on this machine
+- Subscription CLIs: `grok models`, `agy models`, etc.
+
+Seed tuples in `providers.py` are **fallbacks** when the live source is unreachable. Never assume Tim's pulled models or Tim's CLI versions.
+
 ## Overview
 
 Model Radar is an MCP server that discovers, pings, and executes prompts on free coding LLM models across HTTPS providers, and rides monthly subscriptions via local CLIs (`claude`, `grok`, `agy`, `codex`). It ranks HTTPS models by real-time latency. Subscription CLIs are opt-in via `ask(model_ids=…)` / `ask(providers=…)`.

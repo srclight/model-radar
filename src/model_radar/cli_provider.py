@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -44,6 +47,7 @@ class CliSpec:
     login_hint: str = ""
     install_hint: str = ""
     last_message_file: str | None = None  # if set, read this file in cwd instead of JSON stdout
+    list_args: tuple[str, ...] = ()  # e.g. ("models",) — live catalog, not a seed
 
 
 # Subscription CLIs only — binaries that ride a monthly plan, not an API key.
@@ -61,6 +65,7 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         ),
         login_hint="grok login",
         install_hint="https://docs.x.ai/build/overview",
+        list_args=("models",),
     ),
     CliSpec(
         # Google deprecated Gemini CLI (June 2026) in favor of Antigravity (`agy`).
@@ -80,6 +85,7 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         ),
         login_hint="agy  (first interactive session signs in via browser)",
         install_hint="curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        list_args=("models",),
     ),
     CliSpec(
         key="claude",
@@ -361,6 +367,54 @@ async def complete_cli_provider(
     }
 
 
+_MODEL_ID_RE = re.compile(r"^([a-z0-9][a-z0-9._:/-]*)")
+
+
+def parse_cli_model_ids(text: str) -> list[str]:
+    """Parse `grok models` / `agy models` text into model ids.
+
+    Live CLIs print their own catalog; we do not hardcode a user's models.
+    """
+    ids: list[str] = []
+    skip = {"available", "default", "you", "fetching", "logged", "usage",
+            "error", "models", "name", "id", "model"}
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("*-•").strip()
+        if not line:
+            continue
+        token = line.split()[0].split("(")[0]
+        m = _MODEL_ID_RE.match(token)
+        if not m:
+            continue
+        mid = m.group(1)
+        if mid.lower() in skip:
+            continue
+        if mid not in ids:
+            ids.append(mid)
+    return ids
+
+
+def fetch_cli_models(spec: CliSpec) -> tuple:
+    """Ask the CLI what models this user can reach. Fall back to the seed."""
+    # Tests must not spawn grok/agy (slow, needs auth). Live server still lists.
+    if "pytest" in sys.modules:
+        return spec.models
+    if not spec.list_args or not shutil.which(spec.cmd):
+        return spec.models
+    try:
+        proc = subprocess.run(
+            [spec.cmd, *spec.list_args],
+            capture_output=True, text=True, timeout=8,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return spec.models
+    text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    ids = parse_cli_model_ids(text)
+    if not ids:
+        return spec.models
+    return tuple((i, i, "A", "", "") for i in ids)
+
+
 def register_cli_providers() -> None:
     """Walk PATH for subscription CLIs and register each one found.
 
@@ -371,8 +425,9 @@ def register_cli_providers() -> None:
     for spec in CLI_SPECS:
         if not shutil.which(spec.cmd):
             continue
+        models = fetch_cli_models(spec)
         _p(
-            spec.key, spec.name, url=None, env_vars=(), models=spec.models,
+            spec.key, spec.name, url=None, env_vars=(), models=models,
             kind="cli", cmd=spec.cmd,
             cmd_args=spec.cmd_args,
             prompt_via="arg",
