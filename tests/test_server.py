@@ -58,9 +58,9 @@ async def test_list_models_tool():
     assert result["count"] > 0
     assert all(m["tier"] == "S+" for m in result["models"])
 
-    # Filter by provider
+    # Filter by provider (count is live, not a frozen seed)
     result = json.loads(await list_models(provider="nvidia"))
-    assert result["count"] == 41
+    assert result["count"] > 0
     assert all(m["provider_key"] == "nvidia" for m in result["models"])
 
     # Filter by min_tier
@@ -75,10 +75,10 @@ async def test_list_models_combined_filters():
     """Combining provider + tier filters should work."""
     from model_radar.server import list_models
 
-    result = json.loads(await list_models(provider="nvidia", tier="S+"))
+    result = json.loads(await list_models(provider="minimax", tier="S+"))
     assert result["count"] > 0
     for m in result["models"]:
-        assert m["provider_key"] == "nvidia"
+        assert m["provider_key"] == "minimax"
         assert m["tier"] == "S+"
 
 
@@ -275,7 +275,7 @@ async def test_server_stats():
 
 @pytest.mark.asyncio
 async def test_startup_refresh_runs_and_logs(monkeypatch):
-    """create_server() schedules _startup_refresh, which calls refresh_models_from_live."""
+    """create_server() records start time. Catalog refresh is started from the serve loop."""
     import asyncio
     from model_radar import server as server_module
 

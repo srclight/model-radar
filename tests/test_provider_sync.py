@@ -13,8 +13,12 @@ from model_radar.provider_sync import (
     fetch_xai_models,
     fetch_googleai_models,
     fetch_ollama_models,
+    fetch_minimax_models,
     compare_models,
     ProviderModel,
+    _provider_models_to_db_rows,
+    refresh_models_from_live,
+    ensure_catalog_fresh,
 )
 
 
@@ -262,6 +266,160 @@ async def test_fetch_ollama_models_down_returns_empty():
     with patch("httpx.AsyncClient", return_value=BoomClient()):
         models = await fetch_ollama_models()
     assert models == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_minimax_models():
+    """MiniMax uses the OpenAI-compatible /v1/models list."""
+    fake_response = {
+        "object": "list",
+        "data": [
+            {"id": "MiniMax-M3", "object": "model", "owned_by": "minimax"},
+            {"id": "MiniMax-M2.7", "object": "model", "owned_by": "minimax"},
+        ],
+    }
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, timeout=None):
+            assert url == "https://api.minimax.io/v1/models"
+            class FakeResp:
+                def raise_for_status(self): pass
+                def json(self): return fake_response
+            return FakeResp()
+
+    with patch("httpx.AsyncClient", return_value=FakeClient()):
+        models = await fetch_minimax_models(api_key="sk-test")
+
+    assert [m.model_id for m in models] == ["MiniMax-M3", "MiniMax-M2.7"]
+    assert all(m.provider == "minimax" for m in models)
+
+
+@pytest.mark.asyncio
+async def test_refresh_purges_retired_and_adds_new(tmp_path, monkeypatch):
+    """Successful live fetch replaces the catalog: new ids in, old ids gone."""
+    from model_radar.db import filter_models, replace_provider_models
+
+    db_path = tmp_path / "models.db"
+    replace_provider_models(
+        "minimax",
+        [
+            ("old-dead", "Dead", "C", "", "", None),
+            ("MiniMax-M2", "M2", "A", "", "", None),
+        ],
+        db_path=db_path,
+    )
+
+    async def fake_fetch(provider=None):
+        return {
+            "minimax": [
+                ProviderModel("MiniMax-M3", label="MiniMax-M3", provider="minimax"),
+                ProviderModel("MiniMax-M2.7", label="MiniMax-M2.7", provider="minimax"),
+            ]
+        }
+
+    monkeypatch.setattr(
+        "model_radar.provider_sync.fetch_all_provider_models", fake_fetch
+    )
+    from model_radar.providers import PROVIDERS, set_provider_models
+    old_models = PROVIDERS["minimax"].models
+    try:
+        counts = await refresh_models_from_live("minimax", db_path=db_path)
+        assert counts["minimax"] == 2
+        ids = {m.model_id for m in filter_models(db_path=db_path, provider="minimax")}
+        assert ids == {"MiniMax-M3", "MiniMax-M2.7"}
+        assert "old-dead" not in ids
+        assert "MiniMax-M2" not in ids
+    finally:
+        set_provider_models("minimax", old_models)
+
+
+@pytest.mark.asyncio
+async def test_refresh_empty_does_not_wipe(tmp_path, monkeypatch):
+    """A failed/empty live fetch must not delete the last known catalog."""
+    from model_radar.db import filter_models, replace_provider_models
+
+    db_path = tmp_path / "models.db"
+    replace_provider_models(
+        "minimax",
+        [("MiniMax-M3", "MiniMax M3", "S+", "74.0%", "1M", None)],
+        db_path=db_path,
+    )
+
+    async def fake_fetch(provider=None):
+        return {"minimax": []}
+
+    monkeypatch.setattr(
+        "model_radar.provider_sync.fetch_all_provider_models", fake_fetch
+    )
+    counts = await refresh_models_from_live("minimax", db_path=db_path)
+    assert counts == {}
+    ids = {m.model_id for m in filter_models(db_path=db_path, provider="minimax")}
+    assert ids == {"MiniMax-M3"}
+
+
+def test_live_rows_keep_seed_tier():
+    """Known seed ids keep SWE-bench tier; brand-new live ids are C."""
+    rows = _provider_models_to_db_rows(
+        [
+            ProviderModel("MiniMax-M3", label="MiniMax-M3", provider="minimax"),
+            ProviderModel(
+                "MiniMax-M9-not-a-real-id",
+                label="MiniMax-M9-not-a-real-id",
+                provider="minimax",
+            ),
+        ],
+        "minimax",
+    )
+    by_id = {r[0]: r for r in rows}
+    assert by_id["MiniMax-M3"][2] == "S+"
+    assert by_id["MiniMax-M3"][1] == "MiniMax M3"
+    assert by_id["MiniMax-M9-not-a-real-id"][2] == "C"
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_fresh_skips_recent(tmp_path, monkeypatch):
+    from model_radar.db import mark_catalog_fetched
+
+    db_path = tmp_path / "models.db"
+    mark_catalog_fetched("minimax", 8, db_path=db_path)
+    called = []
+
+    async def boom(provider=None, db_path=None):
+        called.append(provider)
+        return {"minimax": 1}
+
+    monkeypatch.setattr(
+        "model_radar.provider_sync.refresh_models_from_live", boom
+    )
+    counts = await ensure_catalog_fresh("minimax", ttl_seconds=3600, db_path=db_path)
+    assert counts == {}
+    assert called == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_fresh_refreshes_stale(tmp_path, monkeypatch):
+    from model_radar.db import set_cache_meta
+
+    db_path = tmp_path / "models.db"
+    set_cache_meta(
+        "catalog:minimax:fetched_at",
+        "2020-01-01T00:00:00+00:00",
+        db_path=db_path,
+    )
+    called = []
+
+    async def fake(provider=None, db_path=None):
+        called.append(provider)
+        return {"minimax": 3}
+
+    monkeypatch.setattr(
+        "model_radar.provider_sync.refresh_models_from_live", fake
+    )
+    counts = await ensure_catalog_fresh("minimax", ttl_seconds=3600, db_path=db_path)
+    assert counts == {"minimax": 3}
+    assert called == ["minimax"]
 
 
 if __name__ == "__main__":

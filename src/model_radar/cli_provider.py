@@ -80,8 +80,10 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         models=(
             ("gemini-3.1-pro-high", "Gemini 3.1 Pro High (Subscription)", "S+", "70.0%", "1M"),
             ("gemini-3.7-flash-high", "Gemini 3.7 Flash High (Subscription)", "S", "60.0%", "1M"),
-            ("gemini-3.7-flash-medium", "Gemini 3.7 Flash Medium (Subscription)", "A+", "55.0%", "1M"),
             ("gemini-3.6-flash-high", "Gemini 3.6 Flash High (Subscription)", "S", "60.0%", "1M"),
+            ("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking (via agy)", "S+", "72.0%", "200k"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6 (via agy)", "S", "65.0%", "200k"),
+            ("gpt-oss-120b-medium", "GPT-OSS 120B (via agy)", "S", "60.0%", "128k"),
         ),
         login_hint="agy  (first interactive session signs in via browser)",
         install_hint="curl -fsSL https://antigravity.google/cli/install.sh | bash",

@@ -378,6 +378,75 @@ def replace_provider_models(
         return count
 
 
+def set_cache_meta(key: str, value: str, db_path: Path | None = None) -> None:
+    """Upsert a cache_meta row."""
+    init_schema(db_path)
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO cache_meta (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+        conn.commit()
+
+
+def get_cache_meta(key: str, db_path: Path | None = None) -> str | None:
+    """Return a cache_meta value, or None if missing."""
+    init_schema(db_path)
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT value FROM cache_meta WHERE key = ?", (key,)
+        ).fetchone()
+    return row[0] if row else None
+
+
+def mark_catalog_fetched(
+    provider_key: str,
+    count: int,
+    *,
+    ok: bool = True,
+    db_path: Path | None = None,
+) -> None:
+    """Record when we last attempted a live catalog fetch for a provider."""
+    now = datetime.now(timezone.utc).isoformat()
+    set_cache_meta(f"catalog:{provider_key}:fetched_at", now, db_path=db_path)
+    set_cache_meta(
+        f"catalog:{provider_key}:source",
+        "live" if ok else "failed",
+        db_path=db_path,
+    )
+    set_cache_meta(f"catalog:{provider_key}:count", str(count), db_path=db_path)
+
+
+def catalog_fetched_at(provider_key: str, db_path: Path | None = None) -> datetime | None:
+    raw = get_cache_meta(f"catalog:{provider_key}:fetched_at", db_path=db_path)
+    if not raw:
+        return None
+    try:
+        text = raw.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None
+
+
+def catalog_is_stale(
+    provider_key: str,
+    ttl_seconds: int,
+    db_path: Path | None = None,
+) -> bool:
+    """True if we have never fetched this provider, or the fetch is older than TTL."""
+    fetched = catalog_fetched_at(provider_key, db_path=db_path)
+    if fetched is None:
+        return True
+    age = datetime.now(timezone.utc) - fetched
+    return age.total_seconds() > ttl_seconds
+
+
 def ensure_db_populated(db_path: Path | None = None) -> bool:
     """
     Ensure the database has a model list. If it has zero active models,

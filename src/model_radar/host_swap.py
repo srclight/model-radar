@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .config import CONFIG_PATH, load_config
 from .db import get_models_for_discovery
-from .endpoints import get_openai_endpoint_for_model
+from .endpoints import get_base_url, get_openai_endpoint_for_model
 from .providers import TIER_ORDER
 
 # Where model-radar stores API keys (so host can tell user or read for swap)
@@ -211,6 +211,7 @@ def get_host_swap_instructions(
     else:
         # Pick a default: first min_tier or better (sorted by tier quality, then label)
         models = get_models_for_discovery(provider=provider, min_tier=min_tier or "A")
+        models = [m for m in models if get_base_url(m.provider, cfg)]
         if models and (min_tier or "A") in TIER_ORDER:
             models.sort(key=lambda m: (TIER_ORDER.get(m.tier, 99), m.label))
             chosen_model = models[0]
