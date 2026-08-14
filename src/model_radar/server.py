@@ -19,10 +19,16 @@ from .cli_provider import is_cli_provider
 from .config import (
     get_api_key,
     get_configured_providers,
+    get_key_meta,
+    get_provider_flags,
+    in_default_pool,
     is_provider_enabled,
     load_config,
     save_config,
+    set_api_key,
+    set_provider_flags,
 )
+from .lanes import provider_lane
 from .db import get_models_for_discovery
 from .providers import ALL_TIERS, PROVIDERS, TIER_ORDER, get_all_models
 from .scanner import ScanState, format_result, scan_models
@@ -48,6 +54,8 @@ or pin subscriptions for a parallel review — all through MCP tools.
 - "Best model for coding" / "fastest model" → get_fastest(min_tier="A", count=5)
 - "Compare answers from several models" → ask(prompt, count=3)
 - "Review this on Claude + Grok + Gemini" → ask(prompt, providers=["claude","grok","gemini"])
+- "What should I use for translation / rewrite / code review?" → recommend(job="translate"|"rewrite"|"review")
+- "Time and score a few models on a translation / lemma rewrite / code review" → quality_probe(job=…)
 - "Refresh the model list from the internet" → refresh_models()
 - "Run these prompts in batch" → batch_run(prompts=[{"prompt": "..."}, ...])
 - "Check which models actually work" → scan(verify=True) or get_fastest(verified=True)
@@ -58,7 +66,9 @@ or pin subscriptions for a parallel review — all through MCP tools.
 - list_providers() — See all providers, API-key status, and which subscription CLIs are installed. Call first when unsure.
 - list_models(tier?, provider?, min_tier?, free_only?) — Browse catalog without pinging. \
   model_id = code name to use when inserting/configuring (API, Cursor, run()); label = display only. \
-  min_tier="A" means A or better. free_only=true for free only. Response includes is_free when known.
+  min_tier="A" means A or better. free_only=true for free only. \
+  Response includes is_free when known and cost_class \
+  (zero|free_tier|subscription|local|paid|unknown).
 - scan(..., verify?) — Ping models in parallel, get ranked by latency. Use when you need live speed data. \
   Set verify=true to also check models produce non-empty output (catches "ghost" models that ping UP but return empty content).
 - get_fastest(min_tier?, provider?, count?, free_only?, verified?) — Best N models right now. \
@@ -86,6 +96,11 @@ or pin subscriptions for a parallel review — all through MCP tools.
   Set results_file for incremental JSONL output and automatic resume on interruption.
 
 ## Tool guide — Pipeline utilities
+- recommend(job, count?, include_subscriptions?, free_only?) — Short diverse lineup for a job \
+  (translate|rewrite|review|code). Chat models only, one per provider. CLIs opt-in. \
+  Use refs with ask(model_ids=…) or quality_probe(model_ids=…).
+- quality_probe(job, model_ids?, providers?, count?) — Timed pass/fail on a fixed prompt \
+  (EN→ZH, lemma rewrite, or a bare-return code bug).
 - get_workers(count?, min_tier?, free_only?, verified?) — Get N verified-alive models across N distinct providers, \
   tier >= min_tier, ranked by latency. The single most common call pattern for translation pipelines. \
   Returns model_ids ready to use with run() or batch_run().
@@ -98,7 +113,8 @@ or pin subscriptions for a parallel review — all through MCP tools.
   use periodically so free/paid and model list stay current.
 - benchmark(...) — Quality-test models; results show in later scan/get_fastest.
 - setup_guide(provider?) — Signup instructions for unconfigured providers.
-- configure_key(provider, api_key) — Save an API key.
+- configure_key(provider, api_key, key_id?) — Add/update a named key (does not delete others).
+- credits(provider?) — Leftover USD/quota where a public API exists (OpenRouter, SiliconFlow, Groq headers).
 - setup_workflow(step, provider_selection?) — Step-by-step setup (Playwright, providers, keys).
 - host_swap_instructions(model_id?, provider?, min_tier?) — Where to set base_url + model_id on the host.
 - restart_server() — (SSE only) Exit so process manager can restart. Allowed by default; set MODEL_RADAR_ALLOW_RESTART=0 to disable.
@@ -111,7 +127,9 @@ min_tier="A" means "A or better" (includes A+, S, S+).
 ## Notes for agents
 - **Always give the user the model_id** when you list or recommend models (scan, get_fastest, ask results, etc.). Show both label and model_id (e.g. "Kimi K2 Instruct — moonshotai/kimi-k2-instruct") so the user can copy it for run(model_id=...), Cursor config, or host_swap_instructions.
 - model_id is the model code name — use it when inserting or configuring (API calls, Cursor, run(prompt, model_id=\"...\"), host_swap_instructions). label is display-only.
-- is_free in responses: true = free, false = paid, field missing = unknown. Use free_only=true to filter to free only.
+- is_free in responses: true = free, false = paid, field missing = unknown. Use free_only=true to filter to Lane A (never invoices).
+- cost_class: zero ($0/token), free_tier (NIM/Groq rate limits), subscription (CLI plan), local (Ollama), paid, unknown.
+- Lanes: A never invoices (default), B subscription CLI (include_subscriptions), C can charge (include_paid and funded=true). profile() / set_profile() edit local spend_ok and funded. spend_ok is unprompted permission; funded means a paid call would work.
 - quality_score: prefer 4/5 or 5/5; avoid below 3/5 when shown.
 - If only one provider is configured, suggest setup_guide() for more coverage.
 - run() retries on failure automatically; no need to implement retry yourself.
@@ -119,15 +137,14 @@ min_tier="A" means "A or better" (includes A+, S, S+).
 ## Instructions for host agents
 - **SSE and Cursor:** The server must be started in a separate terminal and already listening \
   before Cursor connects. If Cursor tries to connect before the server is up, it will timeout \
-  ("fetch failed", "Connect Timeout"). Tell the user: start `model-radar serve --transport sse --port 8765` \
-  (or with --web), wait for "Uvicorn running on...", then open Cursor or add the MCP server URL. \
-  That way server startup is separate from MCP connection and all tools are immediately active.
-- **Web dashboard:** The user can get a localhost UI (status, config, discovery, run) \
-  by running model-radar with SSE and --web. Command: \
-  `model-radar serve --transport sse --port 8765 --web`. Dashboard URL: \
-  http://127.0.0.1:8765/ . The server binds to 127.0.0.1 only; keys and data never leave the machine.
-- **Restarting the server:** If the user wants to restart or reload, call `restart_server()`. The server will exit with code 0; if run under a loop (e.g. `while true; do model-radar serve ...; sleep 1; done`) it will come back with fresh code. Do not start a second server on another port.
-- **Starting the server:** If nothing is running, instruct: `model-radar serve --transport sse --port 8765 --web` (or without --web). For auto-restart on code changes: `while true; do model-radar serve --transport sse --port 8765 --web; sleep 1; done`.
+  ("fetch failed", "Connect Timeout"). On this host the unit is model-radar.service on port 8743. \
+  Restart with `./scripts/restart-mcp.sh` or `systemctl --user restart model-radar.service`. \
+  Do not kill+nohup a second copy.
+- **Web dashboard:** `model-radar serve --transport sse --port 8743 --web` → http://127.0.0.1:8743/ \
+  The server binds to 127.0.0.1 only; keys never leave the machine.
+- **Restarting the server:** Call `restart_server()` so systemd can respawn, or run `./scripts/restart-mcp.sh`.
+- **Starting the server:** `systemctl --user start model-radar.service` (port 8743). \
+  Manual: `model-radar serve --transport sse --port 8743 --web`.
 - **Privacy:** Do not log, echo, or send API keys off-host. list_providers and API responses \
   show only "configured" or "missing"; never the actual key. Keys are stored only in \
   ~/.model-radar/config.json (0o600).
@@ -169,6 +186,15 @@ async def list_providers() -> str:
             "enabled": enabled,
             "env_vars": list(prov.env_vars),
         }
+        flags = get_provider_flags(cfg, key)
+        row["lane"] = provider_lane(key)
+        row["spend_ok"] = flags["spend_ok"]
+        row["funded"] = flags["funded"]
+        row["login"] = flags["login"]
+        row["in_default_pool"] = in_default_pool(cfg, key)
+        meta = get_key_meta(cfg, key)
+        row["key_ids"] = meta["ids"]
+        row["active_key"] = meta["active"]
         if kind == "cli":
             row["installed"] = bool(prov.cmd and shutil.which(prov.cmd))
         rows.append(row)
@@ -213,8 +239,10 @@ async def list_models(
             "swe_score": m.swe_score,
             "context": m.context,
         }
+        from .cost import cost_class
         if m.is_free is not None:
             row["is_free"] = m.is_free
+        row["cost_class"] = cost_class(m.provider, m.model_id, m.is_free)
         rows.append(row)
     return json.dumps({
         "count": len(rows),
@@ -278,6 +306,7 @@ async def get_fastest(
     provider: str | None = None,
     count: int = 5,
     free_only: bool = False,
+    include_paid: bool = False,
     verified: bool = False,
 ) -> str:
     """Get the N fastest available models right now. Use when the user wants recommendations or \"best/fastest/free\" models.
@@ -291,14 +320,16 @@ async def get_fastest(
         min_tier: Minimum quality tier (default "A" — shows S+, S, A+, A)
         provider: Limit to specific provider
         count: How many results (default 5)
-        free_only: If true, only return models marked as free
+        free_only: If true, only Lane A (never invoices)
+        include_paid: Include funded Lane C hosts
         verified: If true, verify models produce non-empty output (default false)
     """
     from .provider_sync import ensure_catalog_fresh
     await ensure_catalog_fresh(provider)
     results = await scan_models(
         min_tier=min_tier, provider=provider,
-        configured_only=True, free_only=free_only, limit=count * 2 if verified else count,
+        configured_only=True, free_only=free_only, include_paid=include_paid,
+        limit=count * 2 if verified else count,
         state=_state, verify=verified,
     )
     # Subscription CLIs are opt-in (model_ids / providers=) — do not rank them as "fastest"
@@ -358,15 +389,20 @@ async def provider_status() -> str:
 
 
 @mcp.tool()
-async def configure_key(provider: str, api_key: str) -> str:
-    """Set an API key for a provider. Saved to ~/.model-radar/config.json.
+async def configure_key(
+    provider: str,
+    api_key: str,
+    key_id: str = "default",
+    make_active: bool | None = None,
+) -> str:
+    """Add or update a named API key. Does not delete other keys on this provider.
 
     Args:
-        provider: Provider key (nvidia, groq, cerebras, sambanova, openrouter,
-                  huggingface, replicate, deepinfra, fireworks, codestral,
-                  hyperbolic, scaleway, googleai, siliconflow, together,
-                  cloudflare, perplexity, minimax)
+        provider: Provider key (nvidia, groq, cerebras, minimax, …)
         api_key: The API key value
+        key_id: Name for this key (e.g. coding-plan, paygo, work). Default 'default'.
+        make_active: If true, this key is the one radar uses. If omitted, the
+                     first key stays active.
     """
     if provider not in PROVIDERS:
         available = ", ".join(sorted(PROVIDERS.keys()))
@@ -376,15 +412,95 @@ async def configure_key(provider: str, api_key: str) -> str:
         }, indent=2)
 
     cfg = load_config()
-    cfg["api_keys"][provider] = api_key
+    meta = set_api_key(cfg, provider, api_key, key_id=key_id or "default", make_active=make_active)
     save_config(cfg)
 
     return json.dumps({
         "success": True,
         "provider": PROVIDERS[provider].name,
-        "message": f"API key saved for {PROVIDERS[provider].name}. "
-                   f"Config: ~/.model-radar/config.json",
+        "key_id": key_id or "default",
+        "active_key": meta["active"],
+        "key_ids": meta["ids"],
+        "message": f"Saved key '{key_id or 'default'}' for {PROVIDERS[provider].name}. "
+                   f"Active: {meta['active']}. Config: ~/.model-radar/config.json",
     }, indent=2)
+
+
+@mcp.tool()
+async def profile() -> str:
+    """Show spend lanes and local funded/spend_ok flags. No secrets.
+
+    Lane A = never invoices. B = subscription CLI. C = can charge.
+    Default picks use Lane A only. Lane C needs funded=true and
+    (spend_ok or include_paid).
+    """
+    cfg = load_config()
+    rows = []
+    for key, prov in PROVIDERS.items():
+        flags = get_provider_flags(cfg, key)
+        rows.append({
+            "key": key,
+            "provider": prov.name,
+            "lane": provider_lane(key),
+            "configured": key in get_configured_providers(cfg),
+            "spend_ok": flags["spend_ok"],
+            "funded": flags["funded"],
+            "login": flags["login"],
+        })
+    return json.dumps({
+        "spend_policy": "default Lane A; Lane C only if funded and (spend_ok or include_paid)",
+        "providers": rows,
+    }, indent=2)
+
+
+@mcp.tool()
+async def set_profile(
+    provider: str,
+    spend_ok: bool | None = None,
+    funded: bool | None = None,
+    login: str | None = None,
+) -> str:
+    """Set local spend_ok / funded / login for a provider. Saved to ~/.model-radar/config.json.
+
+    spend_ok: allow unprompted paid picks (default false).
+    funded: a paid call would work (card or credits). Not permission.
+    login: how you signed up, e.g. github:youruser or google:you@example.com.
+    """
+    if provider not in PROVIDERS:
+        available = ", ".join(sorted(PROVIDERS.keys()))
+        return json.dumps({
+            "error": f"Unknown provider '{provider}'",
+            "available_providers": available,
+        }, indent=2)
+    if spend_ok is None and funded is None and not login:
+        return json.dumps({
+            "error": "Pass spend_ok, funded, and/or login",
+            "provider": provider,
+        }, indent=2)
+    cfg = load_config()
+    set_provider_flags(cfg, provider, spend_ok=spend_ok, funded=funded, login=login)
+    save_config(cfg)
+    flags = get_provider_flags(cfg, provider)
+    return json.dumps({
+        "success": True,
+        "provider": provider,
+        "lane": provider_lane(provider),
+        "spend_ok": flags["spend_ok"],
+        "funded": flags["funded"],
+        "login": flags["login"],
+    }, indent=2)
+
+
+@mcp.tool()
+async def credits(provider: str | None = None) -> str:
+    """Read leftover credits or quota where a public API exists.
+
+    OpenRouter: prepaid USD remaining. SiliconFlow: prepaid balance.
+    Groq: remaining daily/minute rate limits (not dollars).
+    Most other hosts have no credit API — those are omitted, not guessed.
+    """
+    from .credits import fetch_credits
+    return json.dumps(fetch_credits(provider), indent=2)
 
 
 @mcp.tool()
@@ -556,6 +672,84 @@ async def ask(
         state=_state,
     )
     return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def recommend(
+    job: str = "code",
+    count: int = 6,
+    include_subscriptions: bool = False,
+    free_only: bool = False,
+    include_paid: bool = False,
+) -> str:
+    """Recommend a short diverse lineup for a job (no ping).
+
+    Jobs: translate (EN/ZH and review), rewrite (lemma-study prose),
+    review (code implementations), code (general coding).
+
+    Returns chat models only, at most one per provider. Subscription CLIs
+    are omitted unless include_subscriptions=True (they spend a monthly plan).
+
+    Args:
+        job: translate | rewrite | review | code
+        count: How many models (default 6, max 12)
+        include_subscriptions: Include claude/grok/agy/codex (default false)
+        free_only: Only Lane A (never invoices)
+        include_paid: Include funded Lane C hosts (still skipped if funded is not true)
+    """
+    from .provider_sync import ensure_catalog_fresh
+    from .recommend import JOBS, recommend_payload
+
+    await ensure_catalog_fresh()
+    if job not in JOBS:
+        return json.dumps({
+            "error": f"Unknown job '{job}'",
+            "jobs": list(JOBS),
+        }, indent=2)
+    return json.dumps(
+        recommend_payload(
+            job=job,
+            count=count,
+            include_subscriptions=include_subscriptions,
+            free_only=free_only,
+            include_paid=include_paid,
+        ),
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def quality_probe(
+    job: str = "translate",
+    model_ids: list[str] | None = None,
+    providers: list[str] | None = None,
+    count: int = 3,
+    include_subscriptions: bool = False,
+) -> str:
+    """Time and score a few models on a fixed probe for a job.
+
+    translate — EN→ZH one sentence (CJK present, no prompt echo)
+    rewrite   — lemma-study sentence (keep δικαιόω / righteous sense)
+    review    — spot a bare `return` in first_even()
+
+    Omit model_ids to use recommend() for this job.
+
+    Args:
+        job: translate | rewrite | review
+        model_ids: Explicit models (provider/id or id)
+        providers: One best model per named provider
+        count: How many to pick when model_ids omitted (default 3)
+        include_subscriptions: Allow CLI models in auto-pick (default false)
+    """
+    from .probe import run_quality_probe
+    result = await run_quality_probe(
+        job=job,
+        model_ids=model_ids,
+        providers=providers,
+        count=count,
+        include_subscriptions=include_subscriptions,
+    )
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -990,7 +1184,7 @@ async def restart_server() -> str:
         return json.dumps({
             "ok": False,
             "message": "Restart is disabled (MODEL_RADAR_ALLOW_RESTART=0). Remove it or set to 1 to allow.",
-            "hint": "Example: model-radar serve --transport sse --port 8765 --web",
+            "hint": "Example: systemctl --user restart model-radar.service",
         }, indent=2)
 
     # Schedule exit on next tick so the tool response can be sent
@@ -1022,11 +1216,31 @@ async def server_stats() -> str:
     now = time.time()
     uptime = now - _server_start_time
     started_at = datetime.fromtimestamp(_server_start_time, tz=timezone.utc)
+    from . import __version__
+    from .db import get_cache_meta
+    catalog = {}
+    try:
+        from .provider_sync import HTTPS_CATALOG_KEYS
+        from .db import catalog_fetched_at
+        latest = None
+        for key in HTTPS_CATALOG_KEYS:
+            dt = catalog_fetched_at(key)
+            if dt and (latest is None or dt > latest):
+                latest = dt
+        catalog = {
+            "last_fetch": latest.isoformat() if latest else None,
+            "source_sample": get_cache_meta("catalog:minimax:source"),
+        }
+    except Exception:
+        catalog = {}
     return json.dumps({
+        "version": __version__,
         "started_at": started_at.isoformat(),
         "started_at_epoch": _server_start_time,
         "uptime_seconds": round(uptime, 2),
         "uptime_human": f"{int(uptime)}s",
+        "catalog": catalog,
+        "listen": "127.0.0.1:8743",
     }, indent=2)
 
 

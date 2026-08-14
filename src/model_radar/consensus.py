@@ -131,9 +131,13 @@ async def ask_models(
             configured_only=True, limit=count * 4,
             state=state,
         )
+        from .cost import is_chat_model
         up_models = [r.model for r in results if r.status == "up"]
         # Default ask never burns a subscription quota.
-        up_models = [m for m in up_models if not is_cli_provider(m.provider)]
+        up_models = [
+            m for m in up_models
+            if not is_cli_provider(m.provider) and is_chat_model(m.model_id)
+        ]
         targets = up_models[:count]
 
     if not targets:
@@ -148,15 +152,31 @@ async def ask_models(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    # Run all models in parallel
-    tasks = [
-        _call_model(
-            model=m, messages=messages, cfg=cfg,
-            max_tokens=max_tokens, temperature=temperature,
+    # Remotes in parallel; Ollama one-at-a-time (one GPU).
+    raw_results: list = [None] * len(targets)
+    remote_i = [i for i, m in enumerate(targets) if m.provider != "ollama"]
+    local_i = [i for i, m in enumerate(targets) if m.provider == "ollama"]
+    if remote_i:
+        remote = await asyncio.gather(
+            *[
+                _call_model(
+                    model=targets[i], messages=messages, cfg=cfg,
+                    max_tokens=max_tokens, temperature=temperature,
+                )
+                for i in remote_i
+            ],
+            return_exceptions=True,
         )
-        for m in targets
-    ]
-    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, r in zip(remote_i, remote):
+            raw_results[i] = r
+    for i in local_i:
+        try:
+            raw_results[i] = await _call_model(
+                model=targets[i], messages=messages, cfg=cfg,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+        except Exception as exc:
+            raw_results[i] = exc
 
     # Build structured responses
     responses = []
@@ -170,12 +190,15 @@ async def ask_models(
                 "provider": m.provider,
                 "tier": m.tier,
             }
+        from .cost import cost_class
+        m = targets[i]
         entry = {
-            "model_id": result.get("model_id", "unknown"),
-            "model_label": result.get("model_label", "unknown"),
-            "provider": result.get("provider", "unknown"),
-            "tier": result.get("tier", "unknown"),
+            "model_id": result.get("model_id", m.model_id),
+            "model_label": result.get("model_label", m.label),
+            "provider": result.get("provider", m.provider),
+            "tier": result.get("tier", m.tier),
             "latency_ms": result.get("latency_ms"),
+            "cost_class": cost_class(m.provider, m.model_id, m.is_free),
         }
         # Include quality score if available
         mid = result.get("model_id", "")

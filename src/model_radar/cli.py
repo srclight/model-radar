@@ -70,6 +70,23 @@ async def _run_uvicorn(config) -> None:
 
 
 @main.command()
+@click.option("--job", "-j", type=click.Choice(["translate", "rewrite", "review"]), default="translate")
+@click.option("--count", "-n", default=3, help="How many models to probe")
+@click.option("--include-subscriptions", is_flag=True, help="Allow CLI subscriptions")
+def probe(job: str, count: int, include_subscriptions: bool):
+    """Time and score a fixed prompt (translate / rewrite / review)."""
+    import asyncio
+    import json
+
+    from .probe import run_quality_probe
+
+    result = asyncio.run(run_quality_probe(
+        job=job, count=count, include_subscriptions=include_subscriptions,
+    ))
+    click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+@main.command()
 @click.option("--provider", "-p", default=None, help="Filter by provider key")
 @click.option("--tier", "-t", default=None, help="Filter by exact tier (S+, S, A, etc.)")
 @click.option("--min-tier", "-m", default="A", help="Minimum tier (default: A)")
@@ -151,12 +168,14 @@ def providers():
 @main.command()
 @click.argument("provider")
 @click.argument("api_key")
-def configure(provider: str, api_key: str):
-    """Save an API key to ~/.model-radar/config.json.
+@click.option("--id", "key_id", default="default", help="Name this key (e.g. coding-plan, paygo)")
+@click.option("--active/--no-active", default=None, help="Make this the key radar uses")
+def configure(provider: str, api_key: str, key_id: str, active: bool | None):
+    """Add or update a named API key. Does not delete other keys.
 
-    Example: model-radar configure nvidia nvapi-xxx
+    Example: model-radar configure minimax sk-cp-xxx --id coding-plan
     """
-    from .config import CONFIG_PATH, load_config, save_config
+    from .config import CONFIG_PATH, load_config, save_config, set_api_key
     from .providers import PROVIDERS
 
     if provider not in PROVIDERS:
@@ -165,9 +184,75 @@ def configure(provider: str, api_key: str):
         raise SystemExit(1)
 
     cfg = load_config()
-    cfg["api_keys"][provider] = api_key
+    meta = set_api_key(cfg, provider, api_key, key_id=key_id, make_active=active)
     save_config(cfg)
-    click.echo(f"Saved {PROVIDERS[provider].name} key to {CONFIG_PATH}")
+    click.echo(
+        f"Saved {PROVIDERS[provider].name} key '{key_id}' "
+        f"(active={meta['active']}) to {CONFIG_PATH}"
+    )
+
+
+@main.command()
+@click.option("--provider", "-p", default=None)
+def credits(provider: str | None):
+    """Show leftover credits/quota for hosts that expose an API."""
+    import json
+
+    from .credits import fetch_credits
+
+    click.echo(json.dumps(fetch_credits(provider), indent=2))
+
+
+@main.group(invoke_without_command=True)
+@click.pass_context
+def profile(ctx: click.Context):
+    """Show spend lanes and local funded/spend_ok flags."""
+    if ctx.invoked_subcommand is not None:
+        return
+    from .config import get_configured_providers, get_provider_flags, load_config
+    from .lanes import provider_lane
+    from .providers import PROVIDERS
+
+    cfg = load_config()
+    configured = set(get_configured_providers(cfg))
+    click.echo(f"  {'key':<14} {'lane':<6} {'cfg':<4} {'ok':<4} {'funded':<6} login")
+    for key, _prov in PROVIDERS.items():
+        flags = get_provider_flags(cfg, key)
+        funded_s = {True: "yes", False: "no"}.get(flags["funded"], "?")
+        click.echo(
+            f"  {key:<14} {provider_lane(key):<6} "
+            f"{'yes' if key in configured else '-':<4} "
+            f"{'yes' if flags['spend_ok'] else 'no':<4} "
+            f"{funded_s:<6} {flags['login'] or '—'}"
+        )
+
+
+@profile.command("set")
+@click.argument("provider")
+@click.option("--spend-ok/--no-spend-ok", default=None)
+@click.option("--funded/--no-funded", default=None)
+@click.option("--login", default=None, help="How you signed up, e.g. github:youruser or google:you@example.com")
+def profile_set(provider: str, spend_ok: bool | None, funded: bool | None, login: str | None):
+    """Set spend_ok / funded / login for a provider (local config only)."""
+    from .config import CONFIG_PATH, load_config, save_config, set_provider_flags, get_provider_flags
+    from .lanes import provider_lane
+    from .providers import PROVIDERS
+
+    if provider not in PROVIDERS:
+        click.echo(f"Unknown provider '{provider}'", err=True)
+        raise SystemExit(1)
+    if spend_ok is None and funded is None and not login:
+        click.echo("Pass --login and/or --spend-ok/--funded", err=True)
+        raise SystemExit(1)
+    cfg = load_config()
+    set_provider_flags(cfg, provider, spend_ok=spend_ok, funded=funded, login=login)
+    save_config(cfg)
+    flags = get_provider_flags(cfg, provider)
+    click.echo(
+        f"{provider} lane={provider_lane(provider)} "
+        f"spend_ok={flags['spend_ok']} funded={flags['funded']} "
+        f"login={flags['login'] or '—'} → {CONFIG_PATH}"
+    )
 
 
 @main.group()

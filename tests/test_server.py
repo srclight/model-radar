@@ -42,6 +42,11 @@ async def test_list_providers_tool():
         if p["kind"] == "cli":
             assert p["access"] == "cli"
             assert "installed" in p
+        assert p["lane"] in ("A", "B", "C", "mixed")
+        assert "spend_ok" in p
+        assert "funded" in p
+        assert "in_default_pool" in p
+        assert "key_ids" in p
 
 
 @pytest.mark.asyncio
@@ -91,6 +96,32 @@ async def test_configure_key_unknown_provider():
     assert "error" in result
     assert "nonexistent" in result["error"]
     assert "available_providers" in result
+
+
+@pytest.mark.asyncio
+async def test_profile_and_set_profile_roundtrip(tmp_path, monkeypatch):
+    from model_radar import config as config_mod
+    from model_radar.server import profile, set_profile
+
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(config_mod, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config_mod, "LOCAL_CONFIG_PATH", tmp_path / "no-local.json")
+    (tmp_path / "config.json").write_text('{"api_keys": {}, "providers": {}}')
+
+    listed = json.loads(await profile())
+    cerebras = next(p for p in listed["providers"] if p["key"] == "cerebras")
+    assert cerebras["lane"] == "C"
+    assert cerebras["spend_ok"] is False
+    assert cerebras["funded"] is None
+
+    updated = json.loads(await set_profile("cerebras", spend_ok=False, funded=True))
+    assert updated["success"] is True
+    assert updated["funded"] is True
+    assert updated["spend_ok"] is False
+
+    listed = json.loads(await profile())
+    cerebras = next(p for p in listed["providers"] if p["key"] == "cerebras")
+    assert cerebras["funded"] is True
 
 
 @pytest.mark.asyncio
@@ -271,6 +302,8 @@ async def test_server_stats():
     assert "uptime_human" in result
     assert result["uptime_seconds"] >= 0
     assert "s" in result["uptime_human"]
+    assert "version" in result
+    assert result.get("listen") == "127.0.0.1:8743"
 
 
 @pytest.mark.asyncio

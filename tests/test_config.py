@@ -9,9 +9,14 @@ from model_radar.config import (
     _empty_config,
     get_api_key,
     get_configured_providers,
+    get_key_meta,
+    get_provider_flags,
+    in_default_pool,
     is_provider_enabled,
     load_config,
     save_config,
+    set_api_key,
+    set_provider_flags,
 )
 
 
@@ -115,3 +120,62 @@ def test_get_configured_providers_includes_subscription_cli():
         for k, v in snapshot.items():
             PROVIDERS[k] = v
         register_cli_providers()
+
+
+def test_provider_flags_defaults():
+    cfg = {"providers": {}}
+    flags = get_provider_flags(cfg, "cerebras")
+    assert flags["enabled"] is True
+    assert flags["spend_ok"] is False
+    assert flags["funded"] is None
+    assert flags["login"] is None
+
+
+def test_set_provider_flags_preserves_enabled():
+    cfg = {"providers": {"cerebras": {"enabled": True}}}
+    set_provider_flags(cfg, "cerebras", spend_ok=False, funded=True, login="github:example")
+    assert cfg["providers"]["cerebras"]["enabled"] is True
+    assert cfg["providers"]["cerebras"]["spend_ok"] is False
+    assert cfg["providers"]["cerebras"]["funded"] is True
+    flags = get_provider_flags(cfg, "cerebras")
+    assert flags == {
+        "enabled": True, "spend_ok": False, "funded": True,
+        "login": "github:example",
+    }
+
+
+def test_legacy_string_key_still_reads():
+    cfg = {"api_keys": {"groq": "gsk-legacy"}, "providers": {}}
+    assert get_api_key(cfg, "groq") == "gsk-legacy"
+    meta = get_key_meta(cfg, "groq")
+    assert meta["ids"] == ["default"]
+    assert meta["active"] == "default"
+
+
+def test_named_keys_active_and_add_does_not_clobber():
+    cfg = {"api_keys": {}, "providers": {}}
+    set_api_key(cfg, "minimax", "sk-cp-plan", key_id="coding-plan")
+    set_api_key(cfg, "minimax", "sk-api-paygo", key_id="paygo")
+    assert get_api_key(cfg, "minimax") == "sk-cp-plan"
+    assert get_api_key(cfg, "minimax", key_id="paygo") == "sk-api-paygo"
+    meta = get_key_meta(cfg, "minimax")
+    assert set(meta["ids"]) == {"coding-plan", "paygo"}
+    assert meta["active"] == "coding-plan"
+    set_api_key(cfg, "minimax", "sk-api-paygo-2", key_id="paygo", make_active=True)
+    assert get_api_key(cfg, "minimax") == "sk-api-paygo-2"
+    assert get_api_key(cfg, "minimax", key_id="coding-plan") == "sk-cp-plan"
+
+
+def test_in_default_pool_lane_a_yes_lane_c_needs_spend_ok():
+    cfg = {
+        "api_keys": {"groq": "gsk-x", "cerebras": "csk-x", "together": "tg-x"},
+        "providers": {
+            "cerebras": {"funded": True, "spend_ok": False},
+            "together": {"funded": False, "spend_ok": False},
+        },
+    }
+    assert in_default_pool(cfg, "groq") is True
+    assert in_default_pool(cfg, "cerebras") is False
+    cfg["providers"]["cerebras"]["spend_ok"] = True
+    assert in_default_pool(cfg, "cerebras") is True
+    assert in_default_pool(cfg, "together") is False

@@ -10,7 +10,22 @@ from __future__ import annotations
 
 from .cli_provider import CLI_SPEC_BY_KEY, is_cli_provider
 from .config import get_api_key, load_config
+from .lanes import provider_lane
 from .providers import PROVIDERS
+
+
+def _cost_hint(pkey: str) -> str:
+    lane = provider_lane(pkey)
+    if lane == "A":
+        return "Lane A — personal free / rate-limited. In the default pool. No invoice."
+    if lane == "B":
+        return "Lane B — monthly subscription CLI. Opt in with include_subscriptions."
+    if lane == "mixed":
+        return "Mixed — :free / -free ids are Lane A; other ids can charge."
+    return (
+        "Lane C — can charge (credits or card). Not in the default pool "
+        "unless spend_ok and funded are both true."
+    )
 
 # Signup instructions per provider, written for an AI agent to relay
 _GUIDES: dict[str, dict] = {
@@ -34,7 +49,7 @@ _GUIDES: dict[str, dict] = {
         "model_count_note": "Fast inference for Llama, Mixtral, Gemma models.",
         "signup_url": "https://console.groq.com",
         "steps": [
-            "Go to console.groq.com and sign up (Google/GitHub SSO available).",
+            "Go to console.groq.com and sign up. Note which identity you use (Google vs GitHub) — they are different accounts.",
             "Navigate to API Keys in the left sidebar.",
             "Create a new API key and copy it (starts with 'gsk_').",
         ],
@@ -44,7 +59,7 @@ _GUIDES: dict[str, dict] = {
     },
     "cerebras": {
         "name": "Cerebras",
-        "free_tier": "Free tier available. Wafer-scale hardware, very fast inference.",
+        "free_tier": "Often a small trial, then pay-as-you-go. A key can charge a card. Not default-pool.",
         "model_count_note": "Llama and other open models at high speed.",
         "signup_url": "https://cloud.cerebras.ai",
         "steps": [
@@ -316,6 +331,8 @@ def get_setup_guide(provider_key: str | None = None) -> dict:
                 "provider": provider_key,
                 "already_configured": installed,
                 "access": "cli",
+                "lane": provider_lane(provider_key) if provider_key in PROVIDERS else "B",
+                "cost_hint": _cost_hint(provider_key) if provider_key in PROVIDERS else _cost_hint("grok"),
                 **guide,
                 "configure_command": (
                     "Already installed — restart model-radar if it is not listed."
@@ -325,6 +342,8 @@ def get_setup_guide(provider_key: str | None = None) -> dict:
             }
         has_key = get_api_key(cfg, provider_key) is not None
         return {
+            "lane": provider_lane(provider_key),
+            "cost_hint": _cost_hint(provider_key),
             "provider": provider_key,
             "already_configured": has_key,
             **guide,
@@ -348,6 +367,8 @@ def get_setup_guide(provider_key: str | None = None) -> dict:
             "free_tier": guide["free_tier"],
             "signup_url": guide["signup_url"],
             "access": "cli" if is_cli_provider(pkey) else "api_key",
+            "lane": provider_lane(pkey),
+            "cost_hint": _cost_hint(pkey),
         }
         if is_cli_provider(pkey) or get_api_key(cfg, pkey) is not None:
             configured.append(pkey)
@@ -378,8 +399,12 @@ def get_setup_guide(provider_key: str | None = None) -> dict:
         "unconfigured_count": len(unconfigured),
         "setup_instructions": (
             "To add a provider, direct your user to the signup_url below. "
-            "Once they have an API key, call configure_key(provider, api_key) to save it. "
-            "Providers marked HIGH priority offer the best free tiers and should be set up first."
+            "Record which identity they used (GitHub vs Google vs email) with "
+            "set_profile(provider, login='…'). "
+            "Once they have an API key, call configure_key(provider, api_key, key_id=…) "
+            "(named keys; adding does not overwrite other ids). "
+            "Prefer Lane A (HIGH personal free) for the default pool. "
+            "Lane C keys can charge — leave spend_ok false unless the user opts in."
         ),
         "unconfigured": unconfigured,
     }
