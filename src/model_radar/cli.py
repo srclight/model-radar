@@ -56,7 +56,15 @@ def serve(transport: str, port: int, web: bool):
 
 
 async def _run_uvicorn(config) -> None:
+    import asyncio
+
     import uvicorn
+
+    from .server import _startup_refresh
+
+    # create_server() runs before the event loop exists, so the in-process
+    # ensure_future is a no-op. Kick refresh once uvicorn owns a loop.
+    asyncio.create_task(_startup_refresh())
     server = uvicorn.Server(config)
     await server.serve()
 
@@ -323,11 +331,10 @@ def obsolete(provider: str | None, limit: int):
 @click.option("--ping", is_flag=True, help="Run ping test after refreshing (tests all refreshed models)")
 @click.option("--ping-limit", default=50, help="Max models to ping when --ping (default 50)")
 def refresh(provider: str | None, ping: bool, ping_limit: int):
-    """Fetch latest model lists from configured providers and replace them in the database.
-    
-    Only providers with API keys are fetched (openrouter, nvidia, groq). Other
-    providers keep their existing DB list (from last sync). Use this to get the
-    current catalog from APIs, then optionally run a ping test.
+    """Fetch latest model lists and replace each provider's catalog.
+
+    Successful fetch: new ids in, retired ids gone. Empty fetch keeps the
+    last snapshot. Catalog GETs are free. Then optionally ping.
     """
     import asyncio
     from .provider_sync import refresh_models_from_live
@@ -339,7 +346,7 @@ def refresh(provider: str | None, ping: bool, ping_limit: int):
     counts = asyncio.run(_refresh())
 
     if not counts:
-        click.echo("No providers with API keys returned models (check openrouter, nvidia, groq).")
+        click.echo("No providers with API keys returned models.")
         return
 
     total = sum(counts.values())
