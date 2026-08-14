@@ -70,16 +70,16 @@ async def _run_uvicorn(config) -> None:
 
 
 @main.command("still-free")
-@click.option("--no-ping", "ping", is_flag=True, default=True, flag_value=False,
+@click.option("--no-ping", is_flag=True, default=False,
               help="List Lane A hosts only; do not send completions")
-def still_free_cmd(ping: bool):
+def still_free_cmd(no_ping: bool):
     """One cheap ping per Lane A host in the default pool."""
     import asyncio
     import json
 
     from .sweep import still_free
 
-    click.echo(json.dumps(asyncio.run(still_free(ping=ping)), indent=2))
+    click.echo(json.dumps(asyncio.run(still_free(ping=not no_ping)), indent=2))
 
 
 @main.command()
