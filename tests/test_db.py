@@ -19,6 +19,9 @@ from model_radar.db import (
     replace_provider_models,
     ensure_db_populated,
     get_models_for_discovery,
+    mark_catalog_fetched,
+    catalog_is_stale,
+    catalog_fetched_at,
     DB_PATH,
 )
 from model_radar.providers import PROVIDERS
@@ -353,6 +356,29 @@ class TestReplaceProviderModels:
         after = filter_models(db_path=synced_db, provider="groq")
         assert len(after) == 1
         assert after[0].model_id == "only-one"
+
+
+class TestCatalogFreshness:
+    def test_never_fetched_is_stale(self, temp_db):
+        init_schema(temp_db)
+        assert catalog_is_stale("minimax", 3600, db_path=temp_db) is True
+        assert catalog_fetched_at("minimax", db_path=temp_db) is None
+
+    def test_just_fetched_is_fresh(self, temp_db):
+        init_schema(temp_db)
+        mark_catalog_fetched("minimax", 8, db_path=temp_db)
+        assert catalog_is_stale("minimax", 3600, db_path=temp_db) is False
+        assert catalog_fetched_at("minimax", db_path=temp_db) is not None
+
+    def test_old_fetch_is_stale(self, temp_db):
+        from model_radar.db import set_cache_meta
+        init_schema(temp_db)
+        set_cache_meta(
+            "catalog:minimax:fetched_at",
+            "2020-01-01T00:00:00+00:00",
+            db_path=temp_db,
+        )
+        assert catalog_is_stale("minimax", 3600, db_path=temp_db) is True
 
 
 class TestEnsureDbPopulated:

@@ -13,6 +13,21 @@ import asyncio
 from .cli_provider import is_cli_provider
 from .config import load_config
 from .providers import PROVIDERS, Model, get_all_models
+
+
+def _catalog_models() -> list[Model]:
+    """Union of SQLite catalog and in-memory registry (CLI/Ollama live lists)."""
+    mem = get_all_models()
+    try:
+        from .db import get_models_for_discovery
+        db = get_models_for_discovery()
+    except Exception:
+        return mem
+    if not db:
+        return mem
+    seen = {(m.provider, m.model_id) for m in db}
+    extra = [m for m in mem if (m.provider, m.model_id) not in seen]
+    return db + extra
 from .quality import get_model_quality
 from .runner import _call_model
 from .scanner import ScanState, scan_models
@@ -24,7 +39,7 @@ def resolve_model_ref(ref: str) -> Model | None:
     Exact model_id wins (NVIDIA ids contain slashes). Then provider/id
     if the left side is a known provider key.
     """
-    models = get_all_models()
+    models = _catalog_models()
     exact = [m for m in models if m.model_id == ref]
     if len(exact) == 1:
         return exact[0]
@@ -40,7 +55,7 @@ def resolve_model_ref(ref: str) -> Model | None:
 
 
 def _best_model_for_provider(provider_key: str) -> Model | None:
-    models = [m for m in get_all_models() if m.provider == provider_key]
+    models = [m for m in _catalog_models() if m.provider == provider_key]
     if not models:
         return None
     from .providers import TIER_ORDER
@@ -70,6 +85,9 @@ async def ask_models(
     are never auto-picked — they exist to ride a monthly plan, so a host
     must name them.
     """
+    from .provider_sync import ensure_catalog_fresh
+    await ensure_catalog_fresh(provider)
+
     cfg = load_config()
     targets: list[Model] = []
     missing: list[str] = []
@@ -138,11 +156,20 @@ async def ask_models(
         )
         for m in targets
     ]
-    raw_results = await asyncio.gather(*tasks)
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Build structured responses
     responses = []
-    for result in raw_results:
+    for i, result in enumerate(raw_results):
+        if isinstance(result, Exception):
+            m = targets[i]
+            result = {
+                "error": str(result),
+                "model_id": m.model_id,
+                "model_label": m.label,
+                "provider": m.provider,
+                "tier": m.tier,
+            }
         entry = {
             "model_id": result.get("model_id", "unknown"),
             "model_label": result.get("model_label", "unknown"),

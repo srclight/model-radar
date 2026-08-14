@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -42,6 +46,8 @@ class CliSpec:
     cmd_args: tuple[str, ...] = ()
     login_hint: str = ""
     install_hint: str = ""
+    last_message_file: str | None = None  # if set, read this file in cwd instead of JSON stdout
+    list_args: tuple[str, ...] = ()  # e.g. ("models",) — live catalog, not a seed
 
 
 # Subscription CLIs only — binaries that ride a monthly plan, not an API key.
@@ -59,6 +65,7 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         ),
         login_hint="grok login",
         install_hint="https://docs.x.ai/build/overview",
+        list_args=("models",),
     ),
     CliSpec(
         # Google deprecated Gemini CLI (June 2026) in favor of Antigravity (`agy`).
@@ -73,11 +80,14 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         models=(
             ("gemini-3.1-pro-high", "Gemini 3.1 Pro High (Subscription)", "S+", "70.0%", "1M"),
             ("gemini-3.7-flash-high", "Gemini 3.7 Flash High (Subscription)", "S", "60.0%", "1M"),
-            ("gemini-3.7-flash-medium", "Gemini 3.7 Flash Medium (Subscription)", "A+", "55.0%", "1M"),
             ("gemini-3.6-flash-high", "Gemini 3.6 Flash High (Subscription)", "S", "60.0%", "1M"),
+            ("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking (via agy)", "S+", "72.0%", "200k"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6 (via agy)", "S", "65.0%", "200k"),
+            ("gpt-oss-120b-medium", "GPT-OSS 120B (via agy)", "S", "60.0%", "128k"),
         ),
         login_hint="agy  (first interactive session signs in via browser)",
         install_hint="curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        list_args=("models",),
     ),
     CliSpec(
         key="claude",
@@ -104,13 +114,20 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         name="Codex (Subscription)",
         cmd="codex",
         model_flag="-m",
-        prompt_flag="-p",
-        cmd_args=("--json",),
+        prompt_flag="",  # prompt is the last positional; -p is --profile
+        cmd_args=(
+            "exec",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "-s", "read-only",
+            "--output-last-message", "last.txt",
+        ),
         models=(
-            ("gpt-5", "GPT-5 (Subscription)", "S+", "72.0%", "256k"),
+            ("gpt-5.6-terra", "GPT-5.6 Terra (Subscription)", "S+", "72.0%", "256k"),
         ),
         login_hint="codex login",
-        install_hint="npm install -g @openai/codex",
+        install_hint="https://github.com/openai/codex",
+        last_message_file="last.txt",
     ),
 )
 
@@ -135,6 +152,7 @@ def _as_mapping(provider: Any) -> dict:
         "prompt_via": getattr(provider, "prompt_via", "arg"),
         "model_flag": getattr(provider, "model_flag", "-m"),
         "prompt_flag": getattr(provider, "prompt_flag", "-p"),
+        "last_message_file": getattr(provider, "last_message_file", None),
     }
 
 
@@ -177,10 +195,13 @@ def _build_subprocess_args(provider: dict, model_id: str, prompt: str) -> tuple[
     args = [cmd, *cmd_args, model_flag, model_id]
     kwargs: dict = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
     if provider.get("prompt_via", "arg") == "stdin":
-        args.append(prompt_flag)
+        if prompt_flag:
+            args.append(prompt_flag)
         kwargs["stdin"] = asyncio.subprocess.PIPE
-    else:
+    elif prompt_flag:
         args.extend([prompt_flag, prompt])
+    else:
+        args.append(prompt)
     return args, kwargs
 
 
@@ -287,6 +308,9 @@ async def complete_cli_provider(
     prompt, _ = _read_text_message(messages)
     model_id = model.model_id if hasattr(model, "model_id") else str(model)
 
+    spec = CLI_SPEC_BY_KEY.get(provider.get("key", ""))
+    last_file = spec.last_message_file if spec else None
+
     args, kwargs = _build_subprocess_args(provider, model_id, prompt)
     with tempfile.TemporaryDirectory(prefix="mr-cli-") as tmp:
         kwargs["cwd"] = tmp
@@ -310,17 +334,24 @@ async def complete_cli_provider(
                 f"CLI '{cmd}' timed out after {COMPLETE_TIMEOUT_SECONDS}s"
             ) from None
 
-    elapsed_ms = (time.monotonic() - start) * 1000
+        elapsed_ms = (time.monotonic() - start) * 1000
 
-    if proc.returncode != 0:
-        err = stderr.decode("utf-8", errors="replace").strip()[-500:]
-        auth = _auth_error_message(provider, err)
-        raise CLIProviderError(auth or f"CLI '{cmd}' exit {proc.returncode}: {err}")
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()[-500:]
+            auth = _auth_error_message(provider, err)
+            raise CLIProviderError(auth or f"CLI '{cmd}' exit {proc.returncode}: {err}")
 
-    if not stdout:
-        raise CLIProviderError(f"CLI '{cmd}' returned empty stdout")
-
-    content = _extract_response_text(stdout, provider["key"])
+        content = None
+        if last_file:
+            path = Path(tmp) / last_file
+            if path.is_file():
+                text = path.read_text(encoding="utf-8", errors="replace").strip()
+                if text:
+                    content = text
+        if content is None:
+            if not stdout:
+                raise CLIProviderError(f"CLI '{cmd}' returned empty stdout")
+            content = _extract_response_text(stdout, provider["key"])
 
     return {
         "content": content,
@@ -338,6 +369,54 @@ async def complete_cli_provider(
     }
 
 
+_MODEL_ID_RE = re.compile(r"^([a-z0-9][a-z0-9._:/-]*)")
+
+
+def parse_cli_model_ids(text: str) -> list[str]:
+    """Parse `grok models` / `agy models` text into model ids.
+
+    Live CLIs print their own catalog; we do not hardcode a user's models.
+    """
+    ids: list[str] = []
+    skip = {"available", "default", "you", "fetching", "logged", "usage",
+            "error", "models", "name", "id", "model"}
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("*-•").strip()
+        if not line:
+            continue
+        token = line.split()[0].split("(")[0]
+        m = _MODEL_ID_RE.match(token)
+        if not m:
+            continue
+        mid = m.group(1)
+        if mid.lower() in skip:
+            continue
+        if mid not in ids:
+            ids.append(mid)
+    return ids
+
+
+def fetch_cli_models(spec: CliSpec) -> tuple:
+    """Ask the CLI what models this user can reach. Fall back to the seed."""
+    # Tests must not spawn grok/agy (slow, needs auth). Live server still lists.
+    if "pytest" in sys.modules:
+        return spec.models
+    if not spec.list_args or not shutil.which(spec.cmd):
+        return spec.models
+    try:
+        proc = subprocess.run(
+            [spec.cmd, *spec.list_args],
+            capture_output=True, text=True, timeout=8,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return spec.models
+    text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    ids = parse_cli_model_ids(text)
+    if not ids:
+        return spec.models
+    return tuple((i, i, "A", "", "") for i in ids)
+
+
 def register_cli_providers() -> None:
     """Walk PATH for subscription CLIs and register each one found.
 
@@ -348,8 +427,9 @@ def register_cli_providers() -> None:
     for spec in CLI_SPECS:
         if not shutil.which(spec.cmd):
             continue
+        models = fetch_cli_models(spec)
         _p(
-            spec.key, spec.name, url=None, env_vars=(), models=spec.models,
+            spec.key, spec.name, url=None, env_vars=(), models=models,
             kind="cli", cmd=spec.cmd,
             cmd_args=spec.cmd_args,
             prompt_via="arg",

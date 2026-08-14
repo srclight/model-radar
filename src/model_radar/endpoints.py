@@ -27,7 +27,7 @@ def get_base_url(provider_key: str, cfg: dict | None = None) -> str | None:
     if provider_key in NON_OPENAI_PROVIDERS:
         return None
     prov = PROVIDERS.get(provider_key)
-    if not prov:
+    if not prov or not prov.url:
         return None
     url = prov.url
     if provider_key == "cloudflare" and cfg is not None:

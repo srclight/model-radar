@@ -1,5 +1,25 @@
 {
   "api_keys": {
-    "nvidia": "nvapi-your-key-here"
+    "nvidia": "nvapi-your-key-here",
+    "groq": "",
+    "cerebras": "",
+    "sambanova": "",
+    "openrouter": "",
+    "huggingface": "",
+    "replicate": "",
+    "deepinfra": "",
+    "fireworks": "",
+    "codestral": "",
+    "hyperbolic": "",
+    "scaleway": "",
+    "googleai": "",
+    "siliconflow": "",
+    "together": "",
+    "cloudflare": "",
+    "xai": "",
+    "inferencenet": "",
+    "sealion": "",
+    "minimax": "",
+    "perplexity": ""
   }
 }
