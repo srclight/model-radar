@@ -40,6 +40,11 @@ class Provider:
     url: str
     env_vars: tuple[str, ...]
     models: tuple[tuple[str, str, str, str, str], ...]
+    kind: str = "https"  # "https" (default) or "cli"
+    cmd: str | None = None  # for cli: command name (e.g. "grok")
+    cmd_args: tuple[str, ...] = ()  # for cli: extra args (e.g. ("--output-format", "json"))
+    prompt_via: str = "arg"  # for cli: "arg" (last positional) or "stdin"
+    model_flag: str = "-m"  # for cli: how to pass model id
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +54,13 @@ class Provider:
 PROVIDERS: dict[str, Provider] = {}
 
 
-def _p(key: str, name: str, url: str, env_vars: tuple[str, ...], models: tuple):
-    PROVIDERS[key] = Provider(key=key, name=name, url=url, env_vars=env_vars, models=models)
+def _p(key: str, name: str, url: str | None, env_vars: tuple[str, ...], models: tuple,
+       *, kind: str = "https", cmd: str | None = None, cmd_args: tuple[str, ...] = (),
+       prompt_via: str = "arg", model_flag: str = "-m"):
+    PROVIDERS[key] = Provider(
+        key=key, name=name, url=url, env_vars=env_vars, models=models,
+        kind=kind, cmd=cmd, cmd_args=cmd_args, prompt_via=prompt_via, model_flag=model_flag,
+    )
 
 
 # --- NVIDIA NIM ---
