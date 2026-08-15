@@ -73,7 +73,7 @@ if not b.get('has_still_free'):
     fi
 
     echo
-    echo "Unit is new code. Restart the Grok/Cursor session so it re-lists tools."
+    echo "Unit is new code. Ask the human to exit the Grok/Cursor session only if /healthz shows new commands."
     exit 0
   fi
   sleep 1
