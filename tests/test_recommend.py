@@ -61,6 +61,38 @@ def test_recommend_include_paid_uses_funded_lane_c():
     assert all(p != "together" for p, _ in ids)
 
 
+def test_recommend_skips_ollama_cloud_routes():
+    pool = [
+        _m("ollama", "minimax-m2:cloud"),
+        _m("ollama", "gemma3:27b"),
+        _m("groq", "openai/gpt-oss-120b", "S"),
+    ]
+    with patch("model_radar.recommend.get_configured_providers",
+               return_value=["ollama", "groq"]), \
+         patch("model_radar.recommend.get_models_for_discovery", return_value=pool), \
+         patch("model_radar.recommend.load_config", return_value={"api_keys": {}, "providers": {}}):
+        picked = recommend_models(job="dict", count=6, free_only=True)
+    ids = [m.model_id for m in picked]
+    assert "minimax-m2:cloud" not in ids
+    assert "gemma3:27b" in ids
+
+
+def test_recommend_dict_skips_giant_ultra():
+    pool = [
+        _m("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free", "S+"),
+        _m("groq", "openai/gpt-oss-120b", "S"),
+        _m("codestral", "ministral-8b-latest", "A"),
+    ]
+    with patch("model_radar.recommend.get_configured_providers",
+               return_value=["openrouter", "groq", "codestral"]), \
+         patch("model_radar.recommend.get_models_for_discovery", return_value=pool), \
+         patch("model_radar.recommend.load_config", return_value={"api_keys": {}, "providers": {}}):
+        picked = recommend_models(job="dict", count=2, free_only=True)
+    ids = [m.model_id for m in picked]
+    assert "openai/gpt-oss-120b" in ids
+    assert all("550b" not in i and "ultra" not in i.lower() for i in ids)
+
+
 def test_recommend_payload_unknown_job_falls_back():
     with patch("model_radar.recommend.get_configured_providers", return_value=[]), \
          patch("model_radar.recommend.get_models_for_discovery", return_value=[]), \

@@ -9,7 +9,7 @@ import httpx
 
 from .config import in_default_pool, load_config
 from .cooldown import COOLDOWNS
-from .cost import is_chat_model
+from .cost import is_chat_model, is_cloud_route
 from .db import get_models_for_discovery
 from .lanes import lane_for, provider_lane
 from .providers import PROVIDERS, TIER_ORDER, Model
@@ -19,7 +19,9 @@ from .scanner import _ping_one
 MODELS_PER_HOST = 3
 SPEEDS = ("quality", "fast")
 _SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)b")
-_FAST_HINTS = ("flash", "lite", "nano", "mini", "micro")
+# Do not use bare "mini" — it matches "gemini".
+_FAST_HINTS = ("flash", "lite", "nano", "micro")
+_MINI_RE = re.compile(r"(?:^|[-_/:])mini(?:$|[-_/:.\d])")
 _SLOW_HINTS = ("thinking", "reason", "qwq", "r1-", "-r1")
 
 
@@ -36,7 +38,7 @@ def _param_b(model_id: str) -> float:
 def _speed_key(model: Model) -> tuple:
     mid = (model.model_id or "").lower()
     bump = 0
-    if any(tok in mid for tok in _FAST_HINTS):
+    if any(tok in mid for tok in _FAST_HINTS) or _MINI_RE.search(mid):
         bump -= 8
     if any(tok in mid for tok in _SLOW_HINTS):
         bump += 20
@@ -51,7 +53,7 @@ def _probe_candidates(
 ) -> list[Model]:
     """Chat models for this host. Embeddings never qualify."""
     mine = [m for m in models if m.provider == provider]
-    chats = [m for m in mine if is_chat_model(m.model_id)]
+    chats = [m for m in mine if is_chat_model(m.model_id) and not is_cloud_route(m.model_id)]
     if provider == "openrouter":
         chats = [
             m for m in chats

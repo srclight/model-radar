@@ -36,6 +36,13 @@ def test_pick_returns_none_when_only_embeddings():
     assert _pick_probe_model("nvidia", [embed]) is None
 
 
+def test_probe_candidates_skip_ollama_cloud():
+    cloud = _m("ollama", "minimax-m2.5:cloud")
+    local = _m("ollama", "gemma3:27b")
+    cands = _probe_candidates("ollama", [cloud, local])
+    assert [m.model_id for m in cands] == ["gemma3:27b"]
+
+
 @pytest.mark.asyncio
 async def test_one_completion_per_lane_a_host():
     groq = _m("groq", "llama-fast")
@@ -290,6 +297,16 @@ async def test_http_400_still_tries_next_to_fill_set():
     assert host["status"] == "up"
     assert host["model_id"] == "gemini-2.5-flash"
     assert host["models"][0]["status"] == "error"
+
+
+def test_fast_does_not_treat_gemini_as_mini():
+    pro = _m("googleai", "gemini-2.5-pro", tier="S+")
+    flash = _m("googleai", "gemini-3.6-flash", tier="S")
+    cands = _probe_candidates("googleai", [pro, flash], speed="fast")
+    assert [m.model_id for m in cands] == [
+        "gemini-3.6-flash",
+        "gemini-2.5-pro",
+    ]
 
 
 def test_fast_ranks_small_cloudflare_ahead_of_120b():

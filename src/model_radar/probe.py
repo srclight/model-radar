@@ -78,8 +78,9 @@ def _check_dict_glosses(content: str, prompt: str) -> tuple[bool, str]:
     if "119" not in compact:
         missing.append("119")
     if "11区" not in compact and "11區" not in text and "11 " not in compact:
-        # accept 11区 / 11區 / bare 11 as the Code Geass id
-        if not any(tok in compact for tok in ("11区", "geass")):
+        # accept 11区 / 11區 / "11:" / Geass (any case)
+        low = compact.lower()
+        if "11:" not in compact and "geass" not in low:
             missing.append("11区")
     if "120" not in compact:
         missing.append("120")
@@ -157,8 +158,9 @@ PROBES: dict[str, Probe] = {
             "Reply with only numbered glosses, one per line."
         ),
         prompt=(
-            "Reply with only numbered glosses. One short English gloss per id. "
-            "Keep geographic scope and the disease name.\n\n"
+            "Reply with only lines like `110: <gloss>`. One short English gloss "
+            "per id. For 110, say it is the police number in China/Taiwan. "
+            "For 2019, keep COVID/coronavirus in the gloss.\n\n"
             "110 警察报警电话\n"
             "119 火警\n"
             "11區 Code Geass district name\n"
