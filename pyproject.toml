@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "model-radar-mcp"
-version = "0.11.0"
+version = "0.12.0"
 description = "MCP server that discovers live catalogs across HTTPS providers and subscription CLIs, ranks models by latency, and helps AI agents pick or compare them."
 readme = "README.md"
 license = "MIT"
