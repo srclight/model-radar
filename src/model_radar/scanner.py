@@ -30,6 +30,14 @@ PING_PAYLOAD = {
 }
 
 TIMEOUT_SECONDS = 10.0
+# Local 9B after a 27B swap measured ~72s. Remotes stay at 10s.
+OLLAMA_TIMEOUT_SECONDS = 90.0
+
+
+def timeout_for(provider: str) -> float:
+    if provider == "ollama":
+        return OLLAMA_TIMEOUT_SECONDS
+    return TIMEOUT_SECONDS
 
 RETRYABLE_HTTP = frozenset({402, 429, 500, 502, 503, 529})
 
@@ -224,7 +232,9 @@ async def _ping_one(
 
     start = time.monotonic()
     try:
-        resp = await client.post(url, json=payload, headers=headers, timeout=TIMEOUT_SECONDS)
+        resp = await client.post(
+            url, json=payload, headers=headers, timeout=timeout_for(model.provider),
+        )
         elapsed_ms = (time.monotonic() - start) * 1000
 
         if resp.status_code in (200, 201):
@@ -310,7 +320,9 @@ async def _verify_one(
         }
 
     try:
-        resp = await client.post(url, json=payload, headers=headers, timeout=TIMEOUT_SECONDS)
+        resp = await client.post(
+            url, json=payload, headers=headers, timeout=timeout_for(model.provider),
+        )
         if resp.status_code not in (200, 201):
             return False
 

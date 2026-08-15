@@ -9,30 +9,28 @@ import httpx
 
 from .config import in_default_pool, load_config
 from .cooldown import COOLDOWNS
-from .cost import is_chat_model, is_cloud_route
+from .cost import is_chat_model, is_cloud_route, param_billions
 from .db import get_models_for_discovery
 from .lanes import lane_for, provider_lane
 from .providers import PROVIDERS, TIER_ORDER, Model
 from .scanner import _ping_one
 
 # How many chat models to show per host. The 3 ids on a host are pinged together.
+# Ollama is one GPU — one id, or we fight ourselves on load.
 MODELS_PER_HOST = 3
+OLLAMA_MODELS_PER_HOST = 1
 SPEEDS = ("quality", "fast")
-_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)b")
 # Do not use bare "mini" — it matches "gemini".
 _FAST_HINTS = ("flash", "lite", "nano", "micro")
 _MINI_RE = re.compile(r"(?:^|[-_/:])mini(?:$|[-_/:.\d])")
 _SLOW_HINTS = ("thinking", "reason", "qwq", "r1-", "-r1")
+# Local GPU: 9B-class is the still_free probe. 27B flash needs a cold load.
+_OLLAMA_SWEET_B = 9.0
 
 
 def _is_openrouter_free(model_id: str) -> bool:
     mid = (model_id or "").lower()
     return ":free" in mid or "-free" in mid
-
-
-def _param_b(model_id: str) -> float:
-    hits = _SIZE_RE.findall((model_id or "").lower())
-    return float(hits[-1]) if hits else 40.0
 
 
 def _speed_key(model: Model) -> tuple:
@@ -42,7 +40,15 @@ def _speed_key(model: Model) -> tuple:
         bump -= 8
     if any(tok in mid for tok in _SLOW_HINTS):
         bump += 20
-    return (bump, _param_b(mid), TIER_ORDER.get(model.tier, 99), mid)
+    size = param_billions(model.model_id)
+    return (bump, size if size is not None else 40.0, TIER_ORDER.get(model.tier, 99), mid)
+
+
+def _ollama_key(model: Model) -> tuple:
+    size = param_billions(model.model_id)
+    if size is None:
+        size = 40.0
+    return (abs(size - _OLLAMA_SWEET_B), (model.model_id or "").lower())
 
 
 def _probe_candidates(
@@ -59,11 +65,17 @@ def _probe_candidates(
             m for m in chats
             if _is_openrouter_free(m.model_id) and lane_for(provider, m.model_id) == "A"
         ]
-    if speed == "fast":
+    if provider == "ollama":
+        chats.sort(key=_ollama_key)
+    elif speed == "fast":
         chats.sort(key=_speed_key)
     else:
         chats.sort(key=lambda m: (TIER_ORDER.get(m.tier, 99), (m.model_id or "").lower()))
     return chats
+
+
+def _n_for_host(provider: str) -> int:
+    return OLLAMA_MODELS_PER_HOST if provider == "ollama" else MODELS_PER_HOST
 
 
 def _pick_probe_model(
@@ -179,13 +191,13 @@ async def still_free(*, ping: bool = True, speed: str = "quality") -> dict:
             skipped += 1
             continue
         if not ping:
-            picked = cands[:MODELS_PER_HOST]
+            picked = cands[:_n_for_host(key)]
             row["status"] = "listed"
             row["model_id"] = picked[0].model_id
             row["model_ids"] = [m.model_id for m in picked]
             hosts.append(row)
             continue
-        ping_jobs.append((key, cands[:MODELS_PER_HOST]))
+        ping_jobs.append((key, cands[:_n_for_host(key)]))
 
     if ping and ping_jobs:
         async with httpx.AsyncClient() as client:
