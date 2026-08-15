@@ -220,6 +220,37 @@ async def test_select_diverse_judges_fills_from_same_provider():
 
 
 @pytest.mark.asyncio
+async def test_select_diverse_judges_excludes_producer():
+    models = [
+        _model(provider="minimax", model_id="m2.5", label="MiniMax"),
+        _model(provider="groq", model_id="kimi", label="Kimi"),
+        _model(provider="nvidia", model_id="nemo", label="Nemo"),
+    ]
+    ping_results = [PingResult(model=m, status="up", latency_ms=100) for m in models]
+    with patch("model_radar.judge.scan_models", return_value=ping_results):
+        judges = await _select_diverse_judges(
+            count=3, exclude_providers=["minimax"], exclude_model_ids=["kimi"],
+        )
+    assert {j.provider for j in judges} == {"nvidia"}
+    assert all(j.model_id != "m2.5" for j in judges)
+
+
+@pytest.mark.asyncio
+async def test_judge_item_errors_when_only_producer_left():
+    with patch(
+        "model_radar.judge._select_diverse_judges",
+        return_value=[],
+    ):
+        result = await judge_item(
+            prompt="rate this",
+            rubric=["accuracy"],
+            exclude_providers=["minimax"],
+        )
+    assert "error" in result
+    assert "excluding producer" in result["error"]
+
+
+@pytest.mark.asyncio
 async def test_select_diverse_judges_no_models():
     """Should return empty list when no models available."""
     with patch("model_radar.judge.scan_models", return_value=[]):

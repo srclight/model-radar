@@ -69,8 +69,23 @@ async def _run_uvicorn(config) -> None:
     await server.serve()
 
 
+@main.command("still-free")
+@click.option("--no-ping", is_flag=True, default=False,
+              help="List Lane A hosts only; do not send completions")
+@click.option("--speed", type=click.Choice(["quality", "fast"]), default="quality",
+              help="quality = best tier first; fast = small/flash models first")
+def still_free_cmd(no_ping: bool, speed: str):
+    """Up to 3 chat models per Lane A host, pinged in parallel."""
+    import asyncio
+    import json
+
+    from .sweep import still_free
+
+    click.echo(json.dumps(asyncio.run(still_free(ping=not no_ping, speed=speed)), indent=2))
+
+
 @main.command()
-@click.option("--job", "-j", type=click.Choice(["translate", "rewrite", "review"]), default="translate")
+@click.option("--job", "-j", type=click.Choice(["translate", "rewrite", "review", "dict"]), default="translate")
 @click.option("--count", "-n", default=3, help="How many models to probe")
 @click.option("--include-subscriptions", is_flag=True, help="Allow CLI subscriptions")
 def probe(job: str, count: int, include_subscriptions: bool):
