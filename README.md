@@ -181,7 +181,7 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 - **`ask(prompt, count=3, model_ids?, providers?)`** — Same prompt on N models (Ollama sequential, remotes parallel)
 - **`recommend(job)`** — Short diverse lineup for `translate` / `rewrite` / `review` / `code` / `dict`
 - **`quality_probe(job)`** — Time + pass/fail on a fixed prompt (`dict` = Paper B five headwords)
-- **`still_free()`** — Which Lane A hosts still answer; skips dead catalog ids; reports `completion_calls`
+- **`still_free(speed?)`** — Which Lane A hosts still answer; up to 3 chat models each in parallel (`speed=fast` prefers small/flash ids)
 - **`batch_run(prompts, results_file?)`** — Batch execution with incremental JSONL, resume support, adaptive concurrency
 
 ### Evaluation (LLM-as-Judge)
