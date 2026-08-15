@@ -524,10 +524,11 @@ async def set_profile(
 
 @mcp.tool()
 async def still_free(ping: bool = True) -> str:
-    """Lane A sweep: one cheap ping per in-default-pool host.
+    """Lane A sweep: identify which default-pool hosts still answer.
 
     Use this before a Strong's judge night or dictmaster retranslate.
-    Does not fan out per model. OpenRouter only pings a :free id.
+    Picks a real chat model (better tier first). A 404 tries the next id
+    (max 3 completions per host). OpenRouter only pings a :free id.
     Cooled hosts (401/402/429/529) are listed, not pinged.
     Returns completion_calls so you can see the quota cost.
 

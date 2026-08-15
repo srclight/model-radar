@@ -98,7 +98,7 @@ Rules:
 
 - Candidates: configured, enabled, `in_default_pool`, `provider_lane` in `{A, mixed}`. Skip CLI (Lane B). Skip Lane C even if `spend_ok`.
 - OpenRouter: only ping a **`:free` / `-free`** model. If none in the live catalog, **skip** (do not ping a paid id).
-- One completion per provider: `max_tokens=1`, existing ping payload. Prefer the first chat model already in the catalog for that host (no per-model fan-out).
+- Prefer a real chat model, better tier first (skip embeddings / ASR / TTS). One completion per provider unless the ping is **404 / not_found** — then try the next candidate, max 3 completions per host. 401/402/429/529 still stop (and cool).
 - If the provider is cooled, do **not** ping; row `status="cooled"`, `reason`, `retry_s`.
 - `ping=False`: catalog-only rows (`status="listed"`) — zero completion calls.
 - OpenRouter `$0` remaining prepaid is **not** a skip. `:free` is supposed to work at $0. Skip only when cooled or no `:free` id.
