@@ -299,6 +299,37 @@ async def test_http_400_still_tries_next_to_fill_set():
     assert host["models"][0]["status"] == "error"
 
 
+def test_ollama_probe_prefers_9b_over_27b_flash():
+    flash = _m("ollama", "glm-4.7-flash:latest", tier="C")
+    nine = _m("ollama", "qwen3.5:9b", tier="C")
+    big = _m("ollama", "gemma3:27b", tier="C")
+    cands = _probe_candidates("ollama", [flash, nine, big], speed="fast")
+    assert [m.model_id for m in cands] == [
+        "qwen3.5:9b",
+        "gemma3:27b",
+        "glm-4.7-flash:latest",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_listed_ollama_is_one_model():
+    models = [
+        _m("ollama", "qwen3.5:9b"),
+        _m("ollama", "gemma3:27b"),
+        _m("ollama", "glm-4.7-flash:latest"),
+    ]
+    with (
+        patch("model_radar.sweep.load_config", return_value={"api_keys": {}, "providers": {}}),
+        patch("model_radar.sweep.in_default_pool", side_effect=lambda c, k: k == "ollama"),
+        patch("model_radar.sweep.get_models_for_discovery", return_value=models),
+        patch("model_radar.sweep._ping_one", new_callable=AsyncMock) as ping,
+    ):
+        report = await still_free(ping=False)
+    ping.assert_not_called()
+    assert report["hosts"][0]["model_id"] == "qwen3.5:9b"
+    assert report["hosts"][0]["model_ids"] == ["qwen3.5:9b"]
+
+
 def test_fast_does_not_treat_gemini_as_mini():
     pro = _m("googleai", "gemini-2.5-pro", tier="S+")
     flash = _m("googleai", "gemini-3.6-flash", tier="S")

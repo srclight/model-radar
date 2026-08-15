@@ -14,9 +14,11 @@ from model_radar.providers import Model
 from model_radar.scanner import (
     PingResult,
     ScanState,
+    TIMEOUT_SECONDS,
     format_result,
     ping_status_for_http,
     should_cooldown,
+    timeout_for,
 )
 
 
@@ -24,6 +26,12 @@ def _model(provider="nvidia", model_id="test/model", label="Test Model",
            tier="A", swe="45.0%", ctx="128k"):
     return Model(model_id=model_id, label=label, tier=tier,
                  swe_score=swe, context=ctx, provider=provider)
+
+
+def test_ollama_ping_gets_a_longer_timeout():
+    assert timeout_for("ollama") >= 90.0
+    assert timeout_for("groq") == TIMEOUT_SECONDS
+    assert timeout_for("nvidia") == TIMEOUT_SECONDS
 
 
 def test_scan_state_record():
