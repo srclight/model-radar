@@ -14,6 +14,8 @@ import time
 from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from .cli_provider import is_cli_provider
 from .config import (
@@ -151,6 +153,35 @@ min_tier="A" means "A or better" (includes A+, S, S+).
 """
 
 mcp = FastMCP("model-radar", instructions=MCP_INSTRUCTIONS, stateless_http=True)
+
+
+def health_payload() -> dict:
+    """Process identity for update scripts. No secrets."""
+    from . import __version__
+    names = sorted(
+        getattr(t, "name", "")
+        for t in getattr(getattr(mcp, "_tool_manager", None), "list_tools", lambda: [])()
+        if getattr(t, "name", "")
+    )
+    if not names:
+        names = sorted(
+            n for n, fn in globals().items()
+            if callable(fn) and getattr(fn, "__mcp_tool__", False)
+        )
+    return {
+        "ok": True,
+        "version": __version__,
+        "listen": "127.0.0.1:8743",
+        "tools": names,
+        "has_still_free": "still_free" in names,
+    }
+
+
+async def _healthz(_request: Request) -> JSONResponse:
+    return JSONResponse(health_payload())
+
+
+mcp.custom_route("/healthz", ["GET"])(_healthz)
 
 # Shared scan state for rolling averages across calls within a session
 _state = ScanState()
@@ -492,6 +523,25 @@ async def set_profile(
 
 
 @mcp.tool()
+async def still_free(ping: bool = True, speed: str = "quality") -> str:
+    """Lane A sweep: identify which default-pool hosts still answer.
+
+    Use this before a Strong's judge night or dictmaster retranslate.
+    Pings up to 3 chat models per host in parallel so you get a small
+    live set. speed=quality ranks by tier; speed=fast prefers small /
+    flash / lite ids (Cloudflare 20B before a 120B that needs >10s).
+    OpenRouter only pings :free ids. Cooled hosts are listed, not pinged.
+    Returns completion_calls so you can see the quota cost.
+
+    Args:
+        ping: If false, list candidates only (zero completions).
+        speed: Probe class — quality (default) or fast.
+    """
+    from .sweep import still_free as _sweep
+    return json.dumps(await _sweep(ping=ping, speed=speed), indent=2)
+
+
+@mcp.tool()
 async def credits(provider: str | None = None) -> str:
     """Read leftover credits or quota where a public API exists.
 
@@ -691,7 +741,7 @@ async def recommend(
     are omitted unless include_subscriptions=True (they spend a monthly plan).
 
     Args:
-        job: translate | rewrite | review | code
+        job: translate | rewrite | review | code | dict
         count: How many models (default 6, max 12)
         include_subscriptions: Include claude/grok/agy/codex (default false)
         free_only: Only Lane A (never invoices)
@@ -731,11 +781,12 @@ async def quality_probe(
     translate — EN→ZH one sentence (CJK present, no prompt echo)
     rewrite   — lemma-study sentence (keep δικαιόω / righteous sense)
     review    — spot a bare `return` in first_even()
+    dict      — Paper B five headwords (geography + covid, no echo)
 
     Omit model_ids to use recommend() for this job.
 
     Args:
-        job: translate | rewrite | review
+        job: translate | rewrite | review | dict
         model_ids: Explicit models (provider/id or id)
         providers: One best model per named provider
         count: How many to pick when model_ids omitted (default 3)
@@ -822,6 +873,8 @@ async def judge(
     output_format: str = "csv",
     max_tokens: int = 256,
     temperature: float = 0.0,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> str:
     """Rate a single item using N diverse judge models and return aggregate scores.
 
@@ -842,6 +895,8 @@ async def judge(
         output_format: How judges format scores — "csv" (default) or "json"
         max_tokens: Max response tokens per judge (default 256)
         temperature: Sampling temperature (default 0.0)
+        exclude_providers: Do not use these hosts (pass the producer, e.g. ["minimax"])
+        exclude_model_ids: Do not use these model ids
     """
     from .judge import judge_item
 
@@ -856,6 +911,8 @@ async def judge(
         max_tokens=max_tokens,
         temperature=temperature,
         state=_state,
+        exclude_providers=exclude_providers,
+        exclude_model_ids=exclude_model_ids,
     )
     return json.dumps(result, indent=2)
 
@@ -873,6 +930,8 @@ async def compare(
     free_only: bool = False,
     max_tokens: int = 512,
     temperature: float = 0.0,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> str:
     """Blind A/B comparison of two items judged by N models.
 
@@ -895,6 +954,8 @@ async def compare(
         free_only: If true, only use free models as judges
         max_tokens: Max response tokens per judge (default 512)
         temperature: Sampling temperature (default 0.0)
+        exclude_providers: Skip these hosts (the producer)
+        exclude_model_ids: Skip these model ids
     """
     from .judge import compare_items
 
@@ -911,6 +972,8 @@ async def compare(
         max_tokens=max_tokens,
         temperature=temperature,
         state=_state,
+        exclude_providers=exclude_providers,
+        exclude_model_ids=exclude_model_ids,
     )
     return json.dumps(result, indent=2)
 
@@ -928,6 +991,8 @@ async def batch_judge(
     max_tokens: int = 256,
     temperature: float = 0.0,
     results_file: str | None = None,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> str:
     """Run judge evaluations at scale on a list of items.
 
@@ -956,6 +1021,8 @@ async def batch_judge(
         max_tokens: Max response tokens per judge (default 256)
         temperature: Sampling temperature (default 0.0)
         results_file: Path to JSONL file for incremental writes and resume support
+        exclude_providers: Skip these hosts (the producer)
+        exclude_model_ids: Skip these model ids
     """
     from .judge import batch_judge_items
 
@@ -972,6 +1039,8 @@ async def batch_judge(
         temperature=temperature,
         state=_state,
         results_file=results_file,
+        exclude_providers=exclude_providers,
+        exclude_model_ids=exclude_model_ids,
     )
     return json.dumps(result, indent=2)
 
@@ -1053,6 +1122,8 @@ async def backtranslate_eval(
     min_tier: str = "A",
     free_only: bool = False,
     max_tokens: int = 512,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> str:
     """Evaluate a translation via back-translation and gloss overlap.
 
@@ -1073,6 +1144,8 @@ async def backtranslate_eval(
         min_tier: Minimum quality tier for auto-selection (default "A")
         free_only: Only use free models (default false)
         max_tokens: Max response tokens (default 512)
+        exclude_providers: Do not back-translate on these hosts (the producer)
+        exclude_model_ids: Do not use these model ids
     """
     from .runner import backtranslate_eval as _backtranslate
 
@@ -1086,6 +1159,8 @@ async def backtranslate_eval(
         free_only=free_only,
         max_tokens=max_tokens,
         state=_state,
+        exclude_providers=exclude_providers,
+        exclude_model_ids=exclude_model_ids,
     )
     return json.dumps(result, indent=2)
 

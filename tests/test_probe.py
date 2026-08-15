@@ -31,6 +31,34 @@ def test_lemma_rewrite_keeps_sense():
     assert "unchanged" in detail
 
 
+def test_dict_five_headwords_geography_and_covid():
+    good = """
+110: police emergency number in Mainland China and Taiwan
+119: fire emergency number
+11区: Code Geass district
+120: ambulance / emergency medical hotline
+2019: COVID-19 / 冠状病毒病
+"""
+    ok, _ = score_probe("dict", good, "Reply with only numbered glosses")
+    assert ok is True
+
+    missing, detail = score_probe(
+        "dict",
+        "110: police\n119: fire",
+        "Reply with only numbered glosses",
+    )
+    assert missing is False
+    assert "ids" in detail or "missing" in detail
+
+    no_geo, detail = score_probe(
+        "dict",
+        "110: emergency phone\n119: fire\n11区: geass\n120: ambulance\n2019: COVID",
+        "Reply with only numbered glosses",
+    )
+    assert no_geo is False
+    assert "geograph" in detail or "110" in detail
+
+
 def test_code_review_spots_bare_return():
     ok, _ = score_probe(
         "review",

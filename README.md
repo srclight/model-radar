@@ -179,15 +179,16 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 ### Execution
 - **`run(prompt, model_id?, free_only?)`** — Execute on fastest model with auto-fallback
 - **`ask(prompt, count=3, model_ids?, providers?)`** — Same prompt on N models (Ollama sequential, remotes parallel)
-- **`recommend(job)`** — Short diverse lineup for `translate` / `rewrite` / `review` / `code`
-- **`quality_probe(job)`** — Time + pass/fail on a fixed prompt for that job
+- **`recommend(job)`** — Short diverse lineup for `translate` / `rewrite` / `review` / `code` / `dict`
+- **`quality_probe(job)`** — Time + pass/fail on a fixed prompt (`dict` = Paper B five headwords)
+- **`still_free(speed?)`** — Which Lane A hosts still answer; up to 3 chat models each in parallel (`speed=fast` prefers small/flash ids)
 - **`batch_run(prompts, results_file?)`** — Batch execution with incremental JSONL, resume support, adaptive concurrency
 
 ### Evaluation (LLM-as-Judge)
-- **`judge(prompt, rubric, count=3)`** — Rate a single item with N diverse judges
+- **`judge(prompt, rubric, count=3, exclude_providers?)`** — Rate a single item with N diverse judges (pass the producer to exclude)
 - **`compare(item_a, item_b, blind=True)`** — Blind A/B comparison, randomized order per judge
 - **`batch_judge(items, rubric, results_file?)`** — Evaluate at scale with incremental results
-- **`backtranslate_eval(text, translation, source_lang, target_lang)`** — Back-translation quality metric
+- **`backtranslate_eval(..., exclude_providers?)`** — Back-translation quality metric; do not use the producer
 
 ### Quality & Setup
 - **`benchmark(model_id?)`** — Quality-test with 5 coding challenges

@@ -1,7 +1,23 @@
 """Tests for the scanner module."""
 
+import pytest
+
+from model_radar.cooldown import COOLDOWNS, CooldownBook
+
+
+@pytest.fixture(autouse=True)
+def _clear_cooldowns():
+    COOLDOWNS.clear()
+    yield
+    COOLDOWNS.clear()
 from model_radar.providers import Model
-from model_radar.scanner import PingResult, ScanState, format_result
+from model_radar.scanner import (
+    PingResult,
+    ScanState,
+    format_result,
+    ping_status_for_http,
+    should_cooldown,
+)
 
 
 def _model(provider="nvidia", model_id="test/model", label="Test Model",
@@ -59,7 +75,53 @@ def test_format_result_with_state():
     assert d["uptime_pct"] == 100.0
 
 
-import pytest
+def test_402_and_529_are_overloaded_and_cool():
+    assert ping_status_for_http(402, has_key=True) == "overloaded"
+    assert ping_status_for_http(529, has_key=True) == "overloaded"
+    assert ping_status_for_http(429, has_key=True) == "overloaded"
+    assert should_cooldown(402) == "402"
+    assert should_cooldown(529) == "529"
+    assert should_cooldown(429) == "429"
+
+
+def test_401_cools_this_key_404_does_not():
+    assert ping_status_for_http(401, has_key=True) == "error"
+    assert should_cooldown(401) == "401"
+    assert ping_status_for_http(404, has_key=True) == "not_found"
+    assert should_cooldown(404) is None
+    assert should_cooldown(403) is None
+    assert should_cooldown(503) is None
+
+
+@pytest.mark.asyncio
+async def test_scan_skips_cooled_providers():
+    from unittest.mock import AsyncMock, patch
+
+    from model_radar.scanner import scan_models
+
+    book = CooldownBook()
+    book.record("nvidia", "529")
+    groq = _model(provider="groq", model_id="g", label="G")
+    nvidia = _model(provider="nvidia", model_id="n", label="N")
+
+    async def _ping(client, model, cfg):
+        return PingResult(model=model, status="up", latency_ms=10.0)
+
+    with (
+        patch("model_radar.scanner.COOLDOWNS", book),
+        patch("model_radar.scanner.load_config", return_value={"api_keys": {"groq": "x", "nvidia": "y"}, "providers": {}}),
+        patch("model_radar.scanner.get_models_for_discovery", return_value=[groq, nvidia]),
+        patch("model_radar.scanner.get_configured_providers", return_value=["groq", "nvidia"]),
+        patch("model_radar.scanner.model_in_scope", return_value=True),
+        patch("model_radar.scanner._ping_one", new=_ping),
+    ):
+        results = await scan_models(configured_only=True)
+
+    pinged = {r.model.provider for r in results if r.status == "up"}
+    cooled = [r for r in results if r.status == "cooled"]
+    assert pinged == {"groq"}
+    assert len(cooled) == 1
+    assert cooled[0].model.provider == "nvidia"
 
 
 # --- ProviderThrottle tests ---

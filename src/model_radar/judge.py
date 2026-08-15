@@ -145,12 +145,16 @@ async def _select_diverse_judges(
     min_tier: str = "A",
     free_only: bool = False,
     state: ScanState | None = None,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> list[Model]:
     """Select judge models spread across different providers.
 
     Returns up to `count` models, each from a different provider when possible.
     Falls back to same-provider models if not enough providers are available.
     """
+    banned_p = set(exclude_providers or ())
+    banned_m = set(exclude_model_ids or ())
     # Scan a wider pool to allow provider diversity
     results = await scan_models(
         min_tier=min_tier,
@@ -159,7 +163,12 @@ async def _select_diverse_judges(
         limit=count * 4,
         state=state,
     )
-    up_models = [r.model for r in results if r.status == "up"]
+    up_models = [
+        r.model for r in results
+        if r.status == "up"
+        and r.model.provider not in banned_p
+        and r.model.model_id not in banned_m
+    ]
 
     if not up_models:
         return []
@@ -281,6 +290,8 @@ async def judge_item(
     max_tokens: int = 256,
     temperature: float = 0.0,
     state: ScanState | None = None,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> dict:
     """Rate a single item using N judge models.
 
@@ -309,9 +320,18 @@ async def judge_item(
 
     # Select diverse judges
     judges = await _select_diverse_judges(
-        count=count, min_tier=min_tier, free_only=free_only, state=state
+        count=count, min_tier=min_tier, free_only=free_only, state=state,
+        exclude_providers=exclude_providers, exclude_model_ids=exclude_model_ids,
     )
     if not judges:
+        if exclude_providers or exclude_model_ids:
+            return {
+                "error": "no judges left after excluding producer",
+                "excluded": {
+                    "providers": list(exclude_providers or []),
+                    "model_ids": list(exclude_model_ids or []),
+                },
+            }
         return {"error": "No judge models available. Check API keys with list_providers()."}
 
     # Build messages
@@ -470,6 +490,8 @@ async def compare_items(
     max_tokens: int = 512,
     temperature: float = 0.0,
     state: ScanState | None = None,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> dict:
     """Blind A/B comparison judged by N models.
 
@@ -499,9 +521,12 @@ async def compare_items(
     cfg = load_config()
 
     judges = await _select_diverse_judges(
-        count=judge_count, min_tier=min_tier, free_only=free_only, state=state
+        count=judge_count, min_tier=min_tier, free_only=free_only, state=state,
+        exclude_providers=exclude_providers, exclude_model_ids=exclude_model_ids,
     )
     if not judges:
+        if exclude_providers or exclude_model_ids:
+            return {"error": "no judges left after excluding producer"}
         return {"error": "No judge models available. Check API keys with list_providers()."}
 
     # For each judge, potentially swap A/B order
@@ -698,6 +723,8 @@ async def batch_judge_items(
     temperature: float = 0.0,
     state: ScanState | None = None,
     results_file: str | None = None,
+    exclude_providers: list[str] | None = None,
+    exclude_model_ids: list[str] | None = None,
 ) -> dict:
     """Run judge evaluations at scale on a list of items.
 
@@ -731,9 +758,12 @@ async def batch_judge_items(
 
     # Pre-select judge pool once (reused across items for consistency)
     judges = await _select_diverse_judges(
-        count=judge_count, min_tier=min_tier, free_only=free_only, state=state
+        count=judge_count, min_tier=min_tier, free_only=free_only, state=state,
+        exclude_providers=exclude_providers, exclude_model_ids=exclude_model_ids,
     )
     if not judges:
+        if exclude_providers or exclude_model_ids:
+            return {"error": "no judges left after excluding producer"}
         return {"error": "No judge models available. Check API keys with list_providers()."}
 
     # Resume support: load already-scored indices from results_file

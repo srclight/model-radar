@@ -1,4 +1,4 @@
-"""Small timed quality probe for agent jobs: translate, rewrite, review.
+"""Small timed quality probe for agent jobs: translate, rewrite, review, dict.
 
 Checks are deterministic (substring / script), not LLM-as-judge.
 Use this to compare models on latency + "did the obvious thing."
@@ -61,6 +61,42 @@ def _check_lemma_rewrite(content: str, prompt: str) -> tuple[bool, str]:
     return True, "rewrote while keeping the sense"
 
 
+_GEO_110 = ("china", "taiwan", "中国", "台湾", "台灣", "mainland")
+_COVID = ("covid", "coronavirus", "冠状", "冠狀")
+
+
+def _check_dict_glosses(content: str, prompt: str) -> tuple[bool, str]:
+    text, _ = strip_think_tags(content or "")
+    if not text.strip():
+        return False, "empty after stripping think tags"
+    if detect_prompt_echo(text, "Reply with only numbered glosses"):
+        return False, "echoed the instructions"
+    compact = text.replace("區", "区")
+    missing = []
+    if "110" not in compact:
+        missing.append("110")
+    if "119" not in compact:
+        missing.append("119")
+    if "11区" not in compact and "11區" not in text and "11 " not in compact:
+        # accept 11区 / 11區 / bare 11 as the Code Geass id
+        if not any(tok in compact for tok in ("11区", "geass")):
+            missing.append("11区")
+    if "120" not in compact:
+        missing.append("120")
+    if "2019" not in compact:
+        missing.append("2019")
+    if missing:
+        return False, f"missing ids: {', '.join(missing)}"
+    # 110 geography — look at the 110 line if present, else whole text
+    line_110 = next((ln for ln in text.splitlines() if "110" in ln), text)
+    if not any(tok in line_110.lower() or tok in line_110 for tok in _GEO_110):
+        return False, "110 missing geography (china/taiwan)"
+    line_covid = next((ln for ln in text.splitlines() if "2019" in ln), text)
+    if not any(tok in line_covid.lower() or tok in line_covid for tok in _COVID):
+        return False, "2019 missing covid/coronavirus sense"
+    return True, "five headwords present with geography and covid"
+
+
 def _check_code_review(content: str, prompt: str) -> tuple[bool, str]:
     text, _ = strip_think_tags(content or "")
     if len(text.strip()) < 20:
@@ -81,6 +117,7 @@ _CHECKS = {
     "translate_zh": _check_translate_zh,
     "lemma_rewrite": _check_lemma_rewrite,
     "code_review": _check_code_review,
+    "dict_glosses": _check_dict_glosses,
 }
 
 PROBES: dict[str, Probe] = {
@@ -111,6 +148,25 @@ PROBES: dict[str, Probe] = {
         ),
         max_tokens=256,
         check="lemma_rewrite",
+    ),
+    "dict": Probe(
+        job="dict",
+        name="dict_five_headwords",
+        system_prompt=(
+            "You write short Chinese-dictionary glosses in English. "
+            "Reply with only numbered glosses, one per line."
+        ),
+        prompt=(
+            "Reply with only numbered glosses. One short English gloss per id. "
+            "Keep geographic scope and the disease name.\n\n"
+            "110 警察报警电话\n"
+            "119 火警\n"
+            "11區 Code Geass district name\n"
+            "120 急救电话\n"
+            "2019冠狀病毒病\n"
+        ),
+        max_tokens=400,
+        check="dict_glosses",
     ),
     "review": Probe(
         job="review",
