@@ -7,7 +7,7 @@ Subscription CLIs are opt-in (include_subscriptions=True).
 from __future__ import annotations
 
 from .config import get_configured_providers, load_config
-from .cost import is_chat_model, model_card
+from .cost import is_chat_model, is_cloud_route, model_card
 from .db import get_models_for_discovery
 from .lanes import model_in_scope
 from .providers import TIER_ORDER, Model
@@ -66,8 +66,12 @@ def _sort_key(model: Model, job: str) -> tuple:
             "minimax-m3", "kimi-k3", "k3", "v4", "glm-5.2", "glm-5p2", "glm-5",
         )
     ) else 1
+    giant = 0
+    if job == "dict" and any(tok in blob for tok in ("ultra", "550b", "235b")):
+        giant = 1
     tier = TIER_ORDER.get(model.tier, 99)
     return (
+        giant,
         -_hint_score(model, job),
         newer,
         tier,
@@ -95,7 +99,7 @@ def recommend_models(
     for m in models:
         if m.provider not in configured:
             continue
-        if not is_chat_model(m.model_id):
+        if not is_chat_model(m.model_id) or is_cloud_route(m.model_id):
             continue
         if not model_in_scope(
             m.provider, m.model_id, cfg,

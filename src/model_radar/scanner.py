@@ -219,9 +219,6 @@ async def _ping_one(
     if api_key:
         if model.provider == "replicate":
             headers["Authorization"] = f"Token {api_key}"
-        elif model.provider == "googleai":
-            # Google AI uses key param, not Bearer
-            url = f"{url}?key={api_key}"
         else:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -293,14 +290,12 @@ async def _verify_one(
         return False
 
     url = _get_provider_url(model.provider, cfg)
-    if model.provider == "googleai":
-        url = f"{url}?key={api_key}"
 
     headers = {"Content-Type": "application/json"}
     if api_key:
         if model.provider == "replicate":
             headers["Authorization"] = f"Token {api_key}"
-        elif model.provider != "googleai":
+        else:
             headers["Authorization"] = f"Bearer {api_key}"
 
     prompt_text = verify_prompt or "Reply with exactly: OK"

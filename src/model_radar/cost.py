@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .cli_provider import is_cli_provider
 from .lanes import LANE_A_PROVIDERS, lane_for
 from .providers import PROVIDERS, Model
@@ -72,6 +74,27 @@ def is_chat_model(model_id: str) -> bool:
         ":batch", "-image", "computer-use",
     )
     return not any(tok in lower for tok in skip)
+
+
+_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)b")
+# Structured judge/backtranslate: 20B and under dump CoT into content.
+_STRUCTURED_MIN_B = 27.0
+
+
+def param_billions(model_id: str) -> float | None:
+    # Use the largest Nb (MoE ids look like 30b-a3b).
+    hits = [float(x) for x in _SIZE_RE.findall((model_id or "").lower())]
+    return max(hits) if hits else None
+
+
+def is_cloud_route(model_id: str) -> bool:
+    """Ollama `:cloud` ids 410 on this machine — not a local chat model."""
+    return ":cloud" in (model_id or "").lower()
+
+
+def too_small_for_structured(model_id: str) -> bool:
+    size = param_billions(model_id)
+    return size is not None and size < _STRUCTURED_MIN_B
 
 
 def model_card(model: Model) -> dict:
