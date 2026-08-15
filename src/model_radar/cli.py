@@ -72,14 +72,16 @@ async def _run_uvicorn(config) -> None:
 @main.command("still-free")
 @click.option("--no-ping", is_flag=True, default=False,
               help="List Lane A hosts only; do not send completions")
-def still_free_cmd(no_ping: bool):
-    """One cheap ping per Lane A host in the default pool."""
+@click.option("--speed", type=click.Choice(["quality", "fast"]), default="quality",
+              help="quality = best tier first; fast = small/flash models first")
+def still_free_cmd(no_ping: bool, speed: str):
+    """Up to 3 chat models per Lane A host, pinged in parallel."""
     import asyncio
     import json
 
     from .sweep import still_free
 
-    click.echo(json.dumps(asyncio.run(still_free(ping=not no_ping)), indent=2))
+    click.echo(json.dumps(asyncio.run(still_free(ping=not no_ping, speed=speed)), indent=2))
 
 
 @main.command()

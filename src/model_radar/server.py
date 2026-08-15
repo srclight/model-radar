@@ -523,20 +523,22 @@ async def set_profile(
 
 
 @mcp.tool()
-async def still_free(ping: bool = True) -> str:
+async def still_free(ping: bool = True, speed: str = "quality") -> str:
     """Lane A sweep: identify which default-pool hosts still answer.
 
     Use this before a Strong's judge night or dictmaster retranslate.
-    Picks a real chat model (better tier first). A 404 tries the next id
-    (max 3 completions per host). OpenRouter only pings a :free id.
-    Cooled hosts (401/402/429/529) are listed, not pinged.
+    Pings up to 3 chat models per host in parallel so you get a small
+    live set. speed=quality ranks by tier; speed=fast prefers small /
+    flash / lite ids (Cloudflare 20B before a 120B that needs >10s).
+    OpenRouter only pings :free ids. Cooled hosts are listed, not pinged.
     Returns completion_calls so you can see the quota cost.
 
     Args:
         ping: If false, list candidates only (zero completions).
+        speed: Probe class — quality (default) or fast.
     """
     from .sweep import still_free as _sweep
-    return json.dumps(await _sweep(ping=ping), indent=2)
+    return json.dumps(await _sweep(ping=ping, speed=speed), indent=2)
 
 
 @mcp.tool()
