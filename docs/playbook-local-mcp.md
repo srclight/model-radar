@@ -22,7 +22,7 @@ After **commit + push**, always bounce the unit. Ask the human to exit the Grok/
 
 ```sh
 # After git pull / merge on develop:
-git -C ~/Projects/srclight/model-radar pull
+git -C ~/repos/srclight/model-radar pull
 # editable venv — no pip install needed unless deps changed
 ./scripts/restart-mcp.sh
 # script prints old/new pid, package version, and GET /healthz
