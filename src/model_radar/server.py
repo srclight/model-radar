@@ -14,6 +14,13 @@ import time
 from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
+
+# Shared estate policy, vendored as a single generated file (mcpkit). Refuses unknown tool
+# arguments instead of silently discarding them, and advertises additionalProperties:false so
+# the advertised catalog matches what the runtime enforces.
+#   regenerate: python -m mcpkit.vendor --out src/model_radar/_mcpkit.py
+#   verify:     python -m mcpkit.vendor --check src/model_radar/_mcpkit.py
+from ._mcpkit import StrictArgsMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -152,7 +159,7 @@ min_tier="A" means "A or better" (includes A+, S, S+).
   ~/.model-radar/config.json (0o600).
 """
 
-mcp = FastMCP("model-radar", instructions=MCP_INSTRUCTIONS, stateless_http=True)
+mcp = StrictArgsMCP("model-radar", instructions=MCP_INSTRUCTIONS, stateless_http=True)
 
 
 def health_payload() -> dict:
