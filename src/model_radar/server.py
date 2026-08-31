@@ -13,14 +13,12 @@ import os
 import time
 from datetime import datetime, timezone
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-# Shared estate policy, vendored as a single generated file (mcpkit). Refuses unknown tool
+# Shared estate policy, provided by the ironmcp package. Refuses unknown tool
 # arguments instead of silently discarding them, and advertises additionalProperties:false so
 # the advertised catalog matches what the runtime enforces.
-#   regenerate: python -m mcpkit.vendor --out src/model_radar/_mcpkit.py
-#   verify:     python -m mcpkit.vendor --check src/model_radar/_mcpkit.py
-from ._mcpkit import StrictArgsMCP
+from ironmcp import strict_server
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -159,7 +157,7 @@ min_tier="A" means "A or better" (includes A+, S, S+).
   ~/.model-radar/config.json (0o600).
 """
 
-mcp = StrictArgsMCP("model-radar", instructions=MCP_INSTRUCTIONS, stateless_http=True)
+mcp = strict_server(name="model-radar", instructions=MCP_INSTRUCTIONS, reconnect_hint="check still_free / provider_status and reconnect the model-radar MCP")
 
 
 def health_payload() -> dict:
@@ -1326,7 +1324,7 @@ async def server_stats() -> str:
     }, indent=2)
 
 
-def create_server() -> FastMCP:
+def create_server() -> MCPServer:
     """Return the MCP server instance.
 
     Catalog refresh is started from the serve loop (see cli._run_uvicorn),
@@ -1359,8 +1357,8 @@ def make_sse_and_streamable_http_app(mount_path: str | None = "/") -> "Starlette
     port avoids connection failures when Cursor connects. Uses the streamable app as
     base (so its lifespan runs) and adds SSE routes to it.
     """
-    streamable_app = mcp.streamable_http_app()
-    sse_app = mcp.sse_app(mount_path=mount_path)
+    streamable_app = mcp.streamable_http_app(stateless_http=True)
+    sse_app = mcp.sse_app()
     sse_routes = [r for r in sse_app.routes if getattr(r, "path", None) in ("/sse", "/messages")]
     streamable_app.router.routes.extend(sse_routes)
     return streamable_app

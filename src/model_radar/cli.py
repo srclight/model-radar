@@ -32,8 +32,6 @@ def serve(transport: str, port: int, web: bool):
     server = create_server()
     if transport == "sse":
         # Local only: bind to localhost so the server is never exposed on the network
-        server.settings.host = "127.0.0.1"
-        server.settings.port = port
         if web:
             from .web import add_web_routes
             add_web_routes(server)
@@ -44,9 +42,9 @@ def serve(transport: str, port: int, web: bool):
         app = make_sse_and_streamable_http_app(mount_path="/")
         config = uvicorn.Config(
             app,
-            host=server.settings.host,
-            port=server.settings.port,
-            log_level=server.settings.log_level.lower(),
+            host="127.0.0.1",
+            port=port,
+            log_level=str(server.settings.log_level).lower(),
         )
         anyio.run(_run_uvicorn, config)
         return
