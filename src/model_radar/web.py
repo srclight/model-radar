@@ -15,7 +15,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer
 
 
 def _dashboard_html() -> str:
@@ -419,7 +419,7 @@ async def _dashboard(_request: Request) -> Response:
     return HTMLResponse(_dashboard_html())
 
 
-def add_web_routes(mcp: FastMCP) -> None:
+def add_web_routes(mcp: MCPServer) -> None:
     """Register dashboard and REST API routes on the FastMCP instance. Call before run(transport='sse')."""
     mcp.custom_route("/", ["GET"], name="dashboard")(_dashboard)
     mcp.custom_route("/api/list_providers", ["GET"])(_api_list_providers)
