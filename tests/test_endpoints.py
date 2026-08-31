@@ -20,8 +20,8 @@ def test_get_base_url_replicate():
 
 
 def test_get_auth_style():
-    """Google uses query_key; others use bearer."""
-    assert get_auth_style("googleai")["type"] == "query_key"
+    """OpenAI-compat Gemini wants Bearer, not ?key= (that 400s)."""
+    assert get_auth_style("googleai")["type"] == "bearer"
     assert get_auth_style("groq")["type"] == "bearer"
     assert get_auth_style("groq")["env_var"] == "GROQ_API_KEY"
 

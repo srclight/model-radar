@@ -15,6 +15,7 @@ import time
 import httpx
 
 from .config import get_api_key, load_config
+from .cost import too_small_for_structured
 from .providers import PROVIDERS, Model
 from .cooldown import COOLDOWNS
 from .scanner import ProviderThrottle, ScanState, scan_models, should_cooldown
@@ -74,17 +75,13 @@ async def _call_model(
         acct = cfg.get("cloudflare_account_id") or os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
         url = url.replace("{account_id}", acct)
 
-    # Google AI uses key param
-    if model.provider == "googleai":
-        url = f"{url}?key={api_key}"
-
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
     }
     if model.provider == "replicate":
         headers["Authorization"] = f"Token {api_key}"
-    elif model.provider != "googleai":
+    else:
         headers["Authorization"] = f"Bearer {api_key}"
 
     # Replicate uses a different format
@@ -588,6 +585,7 @@ async def backtranslate_eval(
             and r.model.provider not in banned_p
             and r.model.model_id not in banned_m
             and not COOLDOWNS.is_cooled(r.model.provider)
+            and not too_small_for_structured(r.model.model_id)
         ]
         if not up:
             return {

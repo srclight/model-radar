@@ -19,6 +19,7 @@ from collections import defaultdict
 from itertools import combinations
 
 from .config import load_config
+from .cost import too_small_for_structured
 from .providers import PROVIDERS, Model
 from .quality import get_model_quality
 from .runner import _call_model
@@ -59,8 +60,14 @@ def _build_judge_system_prompt(
 def _parse_csv_scores(content: str, rubric: list[str], scale: str) -> dict | None:
     """Parse a CSV response like '4,5,3' into {dimension: score}."""
     content = content.strip()
-    # Remove any surrounding quotes or backticks
-    content = content.strip("`'\"")
+    # Prefer a trailing numbers-only line so CoT dumps don't steal the first ints.
+    for line in reversed(content.splitlines()):
+        line = line.strip().strip("`'\"")
+        if re.fullmatch(r"\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)+", line):
+            content = line
+            break
+    else:
+        content = content.strip("`'\"")
 
     # Try to extract numbers from the response
     numbers = re.findall(r"(\d+(?:\.\d+)?)", content)
@@ -168,6 +175,7 @@ async def _select_diverse_judges(
         if r.status == "up"
         and r.model.provider not in banned_p
         and r.model.model_id not in banned_m
+        and not too_small_for_structured(r.model.model_id)
     ]
 
     if not up_models:

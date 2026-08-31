@@ -71,6 +71,16 @@ class TestParseCSVScores:
         result = _parse_csv_scores("4.5,3.2", ["a", "b"], "1-5")
         assert result == {"a": 4.5, "b": 3.2}
 
+    def test_csv_trailing_line_after_chain_of_thought(self):
+        blob = (
+            "accuracy maybe 2? naturalness maybe 4.\n"
+            "1,5,1\n"
+        )
+        result = _parse_csv_scores(
+            blob, ["accuracy", "naturalness", "completeness"], "1-5",
+        )
+        assert result == {"accuracy": 1.0, "naturalness": 5.0, "completeness": 1.0}
+
     def test_csv_1_to_10_scale(self):
         result = _parse_csv_scores("8,9", ["a", "b"], "1-10")
         assert result == {"a": 8.0, "b": 9.0}
@@ -233,6 +243,18 @@ async def test_select_diverse_judges_excludes_producer():
         )
     assert {j.provider for j in judges} == {"nvidia"}
     assert all(j.model_id != "m2.5" for j in judges)
+
+
+@pytest.mark.asyncio
+async def test_select_diverse_judges_skips_tiny_20b():
+    models = [
+        _model(provider="groq", model_id="openai/gpt-oss-20b", label="20B"),
+        _model(provider="nvidia", model_id="nvidia/nemotron-3-nano-30b-a3b", label="30B"),
+    ]
+    ping_results = [PingResult(model=m, status="up", latency_ms=100) for m in models]
+    with patch("model_radar.judge.scan_models", return_value=ping_results):
+        judges = await _select_diverse_judges(count=2)
+    assert [j.model_id for j in judges] == ["nvidia/nemotron-3-nano-30b-a3b"]
 
 
 @pytest.mark.asyncio
