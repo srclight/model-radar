@@ -106,6 +106,17 @@ model-radar providers
 model-radar configure nvidia nvapi-xxx
 ```
 
+## MCP argument validation
+
+Unknown tool arguments are **refused**, not silently dropped — a mistyped filter is rejected with an
+error, never answered as if it were applied. Every tool advertises `additionalProperties: false`.
+The guard is the shared [`mcpkit`](https://github.com/srclight/mcpkit) policy, vendored as one
+hash-verified file (`src/model_radar/_mcpkit.py`).
+
+**AI agents:** an `unknown argument(s): … running older code … reconnect` error means the running
+server predates the argument you sent — nothing ran; reconnect the MCP rather than retrying the same
+call.
+
 ## Catalogs are live
 
 Model ids are **not** a hardcoded list. On startup, once an hour, and after a completion 404, model-radar fetches each provider’s `/v1/models` (Ollama `/api/tags`, `grok models` / `agy models`) and **replaces** that provider’s catalog — new ids in, retired ids gone. `GET /v1/models` is free; completions are what you pay for.
