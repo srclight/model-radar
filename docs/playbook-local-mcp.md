@@ -22,7 +22,7 @@ After **commit + push**, always bounce the unit. Ask the human to exit the Grok/
 
 ```sh
 # After git pull / merge on develop:
-git -C ~/Projects/srclight/model-radar pull
+git -C ~/repos/srclight/model-radar pull
 # editable venv — no pip install needed unless deps changed
 ./scripts/restart-mcp.sh
 # script prints old/new pid, package version, and GET /healthz
@@ -54,14 +54,15 @@ Do not put a MiniMax token in `ANTHROPIC_AUTH_TOKEN` globally — that hijacks C
 ## Recommend + probe (agent loop)
 
 ```
-recommend(job="translate")                 # 6 live chat models, no CLI
+still_free(speed="fast")                   # Lane A set, 3 chats/host (Ollama: one 9B)
+recommend(job="dict")                      # Paper B lineup; then pin still_free-up ids
 recommend(job="review", include_subscriptions=True)
-quality_probe(job="translate", count=3)    # time + CJK check
-quality_probe(job="rewrite", model_ids=["minimax/MiniMax-M3"])
-quality_probe(job="review", providers=["minimax","cerebras"])
+quality_probe(job="dict", count=3)         # five headwords (China/Taiwan + COVID)
+quality_probe(job="rewrite", model_ids=["groq/openai/gpt-oss-120b"])
+judge(..., exclude_providers=["minimax"])  # pin 120B-class; skip <27B
 ```
 
-Jobs: `translate` (EN→ZH), `rewrite` (lemma-study sentence), `review` (bare `return` bug). CLI: `model-radar probe -j translate -n 3`.
+Jobs: `translate` (EN→ZH), `rewrite` (lemma-study sentence), `review` (bare `return` bug), `dict` (Paper B five headwords). CLI: `model-radar still-free --speed fast` and `model-radar probe -j dict -n 3`.
 
 ## Pinning models (do not auto-spend subscriptions)
 
@@ -76,8 +77,9 @@ Use `provider/id` when the same slug exists on more than one host.
 
 ## Compare / translation timing notes
 
-- **Ollama is one GPU.** Run local models sequentially. Parallel Ollama + a 22B will time out (we use a 300s Ollama HTTP timeout and treat timeout as an error, not a cancelled gather).
+- **Ollama is one GPU.** `still_free` pings **one** ~9B id (`qwen3.5:9b`) with a **90s** timeout. Do not fan out locals. Cold load after a 27B can take ~70s; a warm 9B is ~14s. Runner completions stay at 300s.
 - **Remotes are parallel.** Subscription CLIs (Grok / `agy` / Codex) and Cerebras/MiniMax finish in seconds; local 3B–20B can take 1–5 minutes each.
+- **`still_free(speed="fast")`** — small/flash/lite first. `speed="quality"` is tier. Google OpenAI-compat is **Bearer** (not `?key=`); 2.5-flash 404s for new users, 3.6-flash works.
 - **Reasoning models** (Qwen3.5, GLM-4.7, Cerebras `zai-glm-4.7`, MiniMax M3) spend the budget inside `<think>` or `message.reasoning`. Use `max_tokens` ≥ 512 for a one-line translation. Runner strips `<think>` and will use `reasoning` when `content` is empty.
 - **Stale ids 404.** If Cerebras/NVIDIA/OpenRouter reject a name, refresh first — do not retry the corpse.
 

@@ -225,12 +225,25 @@ async def test_host_swap_instructions():
 
 @pytest.mark.asyncio
 async def test_host_swap_instructions_with_model_id():
-    """host_swap_instructions with model_id returns that model's endpoint."""
+    """host_swap_instructions with model_id returns that model's endpoint.
+
+    Pick a model that is ACTUALLY in the current catalog rather than hardcoding an
+    id — providers rename and delist models, and a pinned id (this test previously
+    used 'llama-3.3-70b-versatile', straight from the docstring) rots into a
+    chosen_model=None crash the moment the catalog moves. Testing a live id keeps
+    the assertion about behaviour, not about one provider's changing lineup.
+    """
+    from model_radar.db import get_models_for_discovery
     from model_radar.server import host_swap_instructions
 
-    result = json.loads(await host_swap_instructions(model_id="llama-3.3-70b-versatile", provider="groq"))
-    assert result["chosen_model"]["model_id"] == "llama-3.3-70b-versatile"
-    assert result["openai_endpoint"]["model_id"] == "llama-3.3-70b-versatile"
+    groq_models = [m for m in get_models_for_discovery() if m.provider == "groq"]
+    if not groq_models:
+        pytest.skip("no groq models in the current catalog to resolve an endpoint for")
+    model_id = groq_models[0].model_id
+
+    result = json.loads(await host_swap_instructions(model_id=model_id, provider="groq"))
+    assert result["chosen_model"]["model_id"] == model_id
+    assert result["openai_endpoint"]["model_id"] == model_id
     assert "base_url" in result["openai_endpoint"]
     assert "api.groq.com" in result["openai_endpoint"]["base_url"]
 

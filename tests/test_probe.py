@@ -31,6 +31,15 @@ def test_lemma_rewrite_keeps_sense():
     assert "unchanged" in detail
 
 
+def test_dict_prompt_tells_the_model_about_china_taiwan():
+    from model_radar.probe import PROBES
+
+    prompt = PROBES["dict"].prompt.lower()
+    assert "china" in prompt and "taiwan" in prompt
+    assert "covid" in prompt or "coronavirus" in prompt
+    assert "110:" in PROBES["dict"].prompt
+
+
 def test_dict_five_headwords_geography_and_covid():
     good = """
 110: police emergency number in Mainland China and Taiwan
@@ -57,6 +66,17 @@ def test_dict_five_headwords_geography_and_covid():
     )
     assert no_geo is False
     assert "geograph" in detail or "110" in detail
+
+    geass_case, _ = score_probe(
+        "dict",
+        "110: police emergency number in China/Taiwan\n"
+        "119: fire\n"
+        "11: district name in Code Geass\n"
+        "120: ambulance\n"
+        "2019: COVID-19",
+        "Reply with only numbered glosses",
+    )
+    assert geass_case is True
 
 
 def test_code_review_spots_bare_return():

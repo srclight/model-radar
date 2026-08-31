@@ -1,6 +1,14 @@
 """Cost class and chat-model filters."""
 
-from model_radar.cost import cost_class, default_is_free, is_chat_model, model_card
+from model_radar.cost import (
+    cost_class,
+    default_is_free,
+    is_chat_model,
+    is_cloud_route,
+    model_card,
+    param_billions,
+    too_small_for_structured,
+)
 from model_radar.providers import Model
 
 
@@ -20,6 +28,16 @@ def test_default_is_free():
     assert default_is_free("cerebras") is False
     assert default_is_free("minimax") is False
     assert default_is_free("openrouter") is None
+
+
+def test_param_billions_and_structured_cutoff():
+    assert param_billions("openai/gpt-oss-20b") == 20
+    assert param_billions("nvidia/nemotron-3-nano-30b-a3b") == 30
+    assert too_small_for_structured("openai/gpt-oss-20b") is True
+    assert too_small_for_structured("nvidia/nemotron-3-nano-30b-a3b") is False
+    assert too_small_for_structured("gemini-3.7-flash") is False
+    assert is_cloud_route("minimax-m2:cloud") is True
+    assert is_cloud_route("gemma3:27b") is False
 
 
 def test_is_chat_model_skips_embeddings():

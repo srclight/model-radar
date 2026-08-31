@@ -50,10 +50,9 @@ def get_auth_style(provider_key: str) -> dict:
     if not prov:
         return {"type": "bearer", "env_var": None}
     env_var = prov.env_vars[0] if prov.env_vars else None
-    if provider_key == "googleai":
-        return {"type": "query_key", "env_var": env_var}
     if provider_key == "replicate":
         return {"type": "token_header", "env_var": env_var}
+    # googleai OpenAI-compat path wants Bearer; ?key= is 400.
     return {"type": "bearer", "env_var": env_var}
 
 
