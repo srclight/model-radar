@@ -28,7 +28,7 @@ async def test_web_routes_registered_and_dashboard_served():
     """With add_web_routes, the Starlette app serves dashboard at / and API at /api/*."""
     server = create_server()
     add_web_routes(server)
-    app = server.sse_app(mount_path="/")
+    app = server.sse_app()
     from starlette.testclient import TestClient
     client = TestClient(app)
     # Dashboard
@@ -51,7 +51,7 @@ async def test_api_configure_key_validation():
     """POST /api/configure_key requires provider and api_key."""
     server = create_server()
     add_web_routes(server)
-    app = server.sse_app(mount_path="/")
+    app = server.sse_app()
     from starlette.testclient import TestClient
     client = TestClient(app)
     r = client.post("/api/configure_key", json={})
@@ -66,7 +66,7 @@ async def test_api_server_stats():
     """GET /api/server_stats returns started_at and uptime."""
     server = create_server()
     add_web_routes(server)
-    app = server.sse_app(mount_path="/")
+    app = server.sse_app()
     from starlette.testclient import TestClient
     client = TestClient(app)
     r = client.get("/api/server_stats")
