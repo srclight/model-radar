@@ -40,3 +40,4 @@ NEXT-STEPS.md
 
 # VS Code workspace files
 *.code-workspace
+.venv-ironmcp/
