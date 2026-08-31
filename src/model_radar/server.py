@@ -1357,8 +1357,8 @@ def make_sse_and_streamable_http_app(mount_path: str | None = "/") -> "Starlette
     port avoids connection failures when Cursor connects. Uses the streamable app as
     base (so its lifespan runs) and adds SSE routes to it.
     """
-    streamable_app = mcp.streamable_http_app()
-    sse_app = mcp.sse_app(mount_path=mount_path)
+    streamable_app = mcp.streamable_http_app(stateless_http=True)
+    sse_app = mcp.sse_app()
     sse_routes = [r for r in sse_app.routes if getattr(r, "path", None) in ("/sse", "/messages")]
     streamable_app.router.routes.extend(sse_routes)
     return streamable_app
