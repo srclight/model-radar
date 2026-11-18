@@ -24,7 +24,7 @@ This is the correct choice for model-radar because all tools are stateless reque
 
 ### The Problem Stateless Solves
 
-Without `stateless_http=True`, FastMCP creates a server-side session per client. If the server restarts (code update, crash, `restart_server()` tool), those sessions are lost. Clients send their old session ID and get:
+Without `stateless_http=True`, the MCP SDK creates a server-side session per client. If the server restarts (code update, crash, `restart_server()` tool), those sessions are lost. Clients send their old session ID and get:
 
 ```
 -32600: Session not found
@@ -102,14 +102,9 @@ model-radar serve --transport sse --port 8743 --web
 while true; do model-radar serve --transport sse --port 8743; sleep 1; done
 ```
 
-## Port Conventions
+## Port
 
-| Server | Port | Endpoint |
-|--------|------|----------|
-| srclight | 8742 | `http://127.0.0.1:8742/mcp` |
-| model-radar | 8743 | `http://127.0.0.1:8743/mcp` |
-| zhcorpus | 8744 | `http://127.0.0.1:8744/mcp` |
-| conductor | 9999 | `http://127.0.0.1:9999/mcp` |
+The examples use port `8743` (`http://127.0.0.1:8743/mcp`). Any free port works; pass it with `--port` and use the same number in the client configuration.
 
 ## Migrating from SSE to Streamable HTTP
 

@@ -1,7 +1,7 @@
-# Estate migration playbook: FastMCP (v1) → ironmcp (mcp v2)
+# Migration notes: FastMCP (v1) → ironmcp (mcp v2)
 
-Verified on model-radar (Task 0 spike, 2026-08-31, mcp 2.1.1 + ironmcp 0.3.0). Reuse for
-zhcorpus → conductor → srclight → caneslight (last, live lattice).
+Verified on model-radar (Task 0 spike, 2026-08-31, mcp 2.1.1 + ironmcp 0.3.0). The same steps
+apply to any MCP server whose tools return strings.
 
 ## The deltas (this is the whole migration for a str-tool server)
 
