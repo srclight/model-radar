@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 — 2026-11-18
 
 - **`MODEL_RADAR_CONFIG`** names the config file to use in place of `~/.model-radar/config.json`, so keys can live on an encrypted or removable volume. Only that file is read and written. If it is missing, model-radar loads no keys from disk and reports the problem; it never falls back to the home directory and never creates the path.
 - **Changed:** a `config.json` in the working directory is no longer read. It let whatever directory the server started in supply the keys. To keep the old behaviour, set `MODEL_RADAR_CONFIG=./config.json`.
