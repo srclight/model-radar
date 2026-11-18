@@ -21,6 +21,7 @@ GITHUB_SSO_PROVIDERS = frozenset({
     "deepinfra",
     "fireworks",
     "together",
+    "vercel",
 })
 
 

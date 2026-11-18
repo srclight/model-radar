@@ -154,6 +154,7 @@ HTTPS providers take an API key (`configure_key` or env). Call `list_providers()
 | xAI | `XAI_API_KEY` | Or use the `grok` CLI instead |
 | Inference.net | `INFERENCE_NET_API_KEY` | Free tier |
 | SEA-LION | `SEALION_API_KEY` | Free tier |
+| Vercel AI Gateway | `AI_GATEWAY_API_KEY` | List price; free monthly credit needs a card on file. Also serves `typesafe-ai/jev` via `evaluate` |
 | MiniMax | `MINIMAX_API_KEY` | `api.minimax.io` (M3). Same token works on `/anthropic` — do not set `ANTHROPIC_AUTH_TOKEN` globally |
 | Ollama | none (local daemon) | Models already pulled on `127.0.0.1:11434` |
 
@@ -200,6 +201,7 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 - **`compare(item_a, item_b, blind=True)`** — Blind A/B comparison, randomized order per judge
 - **`batch_judge(items, rubric, results_file?)`** — Evaluate at scale with incremental results
 - **`backtranslate_eval(..., exclude_providers?)`** — Back-translation quality metric; do not use the producer
+- **`evaluate(state, questions, model_id?)`** — Typed judgments from TypeSafe Jev (`typesafe-ai/jev`) through Vercel AI Gateway: boolean P(yes), choice, or score. Needs `AI_GATEWAY_API_KEY`
 
 ### Quality & Setup
 - **`benchmark(model_id?)`** — Quality-test with 5 coding challenges

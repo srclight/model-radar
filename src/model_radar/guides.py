@@ -226,6 +226,21 @@ _GUIDES: dict[str, dict] = {
         "key_format": "xai-...",
         "priority": "LOW — only needed if you want the API instead of SuperGrok.",
     },
+    "vercel": {
+        "name": "Vercel AI Gateway",
+        "free_tier": "Small monthly credit, unlocked only after a credit card is on file. List price, no markup.",
+        "model_count_note": "~250 chat models from many labs, plus evaluation models (typesafe-ai/jev) via evaluate().",
+        "signup_url": "https://vercel.com/signup",
+        "steps": [
+            "Sign up at vercel.com (GitHub SSO available). Choose the Hobby plan.",
+            "Open AI Gateway > API Keys > Create API Key. Set a spend budget under Advanced Configuration.",
+            "Add a credit card in the team's AI settings, or every request returns 403 customer_verification_required.",
+            "Copy the key and call configure_key(provider='vercel', api_key=...).",
+        ],
+        "env_var": "AI_GATEWAY_API_KEY",
+        "key_format": "vck_...",
+        "priority": "MEDIUM — one key for many paid labs, and the only waitlist-free route to Jev.",
+    },
     "grok": {
         "name": "Grok (Subscription)",
         "free_tier": "Rides your SuperGrok / grok.com subscription. No API key.",

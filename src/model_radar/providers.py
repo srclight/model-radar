@@ -349,6 +349,18 @@ _p("sealion", "SEA-LION", "https://api.sea-lion.ai/v1/chat/completions",
     ("aisingapore/Llama-SEA-LION-v3-70B-IT", "Llama SEA-LION v3 70B", "A-", "35.0%", "128k"),
 ))
 
+# --- Vercel AI Gateway (pay-as-you-go at list price; needs a card on file) ---
+# Live catalog keeps only type=language. Evaluation models (typesafe-ai/jev)
+# are not chat models; see evaluate.py.
+_p("vercel", "Vercel AI Gateway", "https://ai-gateway.vercel.sh/v1/chat/completions",
+   ("AI_GATEWAY_API_KEY",), (
+    ("moonshotai/kimi-k2.5", "Kimi K2.5", "S+", "76.8%", "256k"),
+    ("zai/glm-4.7", "GLM 4.7", "S+", "73.8%", "200k"),
+    ("minimax/minimax-m2.5", "MiniMax M2.5", "S+", "74.0%", "200k"),
+    ("deepseek/deepseek-v3.2", "DeepSeek V3.2", "S+", "73.1%", "128k"),
+    ("openai/gpt-oss-120b", "GPT OSS 120B", "S", "60.0%", "128k"),
+))
+
 # --- Ollama (local, no key) ---
 # Catalog is whatever THIS machine has pulled. Empty until /api/tags answers.
 _p("ollama", "Ollama", "http://127.0.0.1:11434/v1/chat/completions",

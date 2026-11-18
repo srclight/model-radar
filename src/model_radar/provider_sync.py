@@ -32,7 +32,7 @@ HTTPS_CATALOG_KEYS = (
     "openrouter", "nvidia", "groq", "cerebras", "sambanova",
     "siliconflow", "huggingface", "xai", "googleai", "ollama",
     "minimax", "deepinfra", "fireworks", "codestral", "hyperbolic",
-    "scaleway", "together", "inferencenet", "sealion",
+    "scaleway", "together", "inferencenet", "sealion", "vercel",
 )
 
 _refresh_lock: asyncio.Lock | None = None
@@ -331,6 +331,45 @@ async def fetch_xai_models(api_key: str | None = None) -> list[ProviderModel]:
             return []
 
 
+async def fetch_vercel_models(api_key: str | None = None) -> list[ProviderModel]:
+    """Fetch chat models from Vercel AI Gateway.
+
+    The catalog mixes chat, embedding, image, video, speech and evaluation
+    models. Only type=language can answer chat/completions, so the rest are
+    dropped here rather than failing later in a scan.
+    """
+    if not api_key:
+        return []
+
+    url = "https://ai-gateway.vercel.sh/v1/models"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "model-radar/0.13 (github.com/srclight/model-radar)",
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=headers, timeout=10.0)
+            resp.raise_for_status()
+            data = resp.json()
+            models = []
+            for item in data.get("data", []):
+                if item.get("type") != "language":
+                    continue
+                model_id = item.get("id", "")
+                models.append(ProviderModel(
+                    model_id=model_id,
+                    label=item.get("name") or model_id,
+                    provider="vercel",
+                    created=item.get("released") or item.get("created"),
+                    context_length=item.get("context_window") or None,
+                    extra=item,
+                ))
+            return models
+        except Exception:
+            return []
+
+
 async def fetch_googleai_models(api_key: str | None = None) -> list[ProviderModel]:
     """Fetch available models from Google AI Studio (Gemini).
 
@@ -481,6 +520,7 @@ async def fetch_all_provider_models(
         "together": fetch_together_models,
         "inferencenet": fetch_inferencenet_models,
         "sealion": fetch_sealion_models,
+        "vercel": fetch_vercel_models,
     }
     all_fetchable = list(fetchers)
     providers_to_fetch = [provider] if provider else all_fetchable
