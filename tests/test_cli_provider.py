@@ -293,3 +293,27 @@ def test_complete_accepts_provider_dataclass():
     mapped = _as_mapping(prov)
     assert mapped["cmd"] == "grok"
     assert mapped["prompt_flag"] == "-p"
+
+
+def test_extract_agy_denied_actions_names_the_cause():
+    """agy plan mode: tools denied, response empty -> an error that says so (2026-11-18)."""
+    from model_radar.cli_provider import _extract_response_text
+    out = json.dumps({"conversation_id": "x", "status": "SUCCESS", "response": "", "duration_seconds": 40.0,
+                      "num_turns": 3, "usage": {}, "denied_actions": [{"tool": "web_search"}, {"tool": "web_search"}]})
+    with pytest.raises(CLIProviderError) as exc:
+        _extract_response_text(out.encode(), "gemini")
+    msg = str(exc.value)
+    assert "denied" in msg and "web_search" in msg and "no recognizable" not in msg.lower()
+
+
+def test_extract_agy_response_still_read_when_some_actions_were_denied():
+    from model_radar.cli_provider import _extract_response_text
+    out = json.dumps({"status": "SUCCESS", "response": "pong\n", "denied_actions": [{"tool": "shell"}]})
+    assert _extract_response_text(out.encode(), "gemini") == "pong\n"
+
+
+def test_extract_agy_failed_status_without_text():
+    from model_radar.cli_provider import _extract_response_text
+    with pytest.raises(CLIProviderError) as exc:
+        _extract_response_text(json.dumps({"status": "ERROR", "response": ""}).encode(), "gemini")
+    assert "status ERROR" in str(exc.value)

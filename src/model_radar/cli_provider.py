@@ -17,6 +17,7 @@ import json
 import re
 import shutil
 import subprocess
+import os
 import sys
 import tempfile
 import time
@@ -26,7 +27,9 @@ from typing import Any
 
 
 PING_TIMEOUT_SECONDS = 5.0
-COMPLETE_TIMEOUT_SECONDS = 120.0
+# Subscription CLIs are agents, not endpoints: a busy Grok took more than 120 s on a 4k-token research prompt
+# (2026-11-18). MODEL_RADAR_CLI_TIMEOUT overrides the default.
+COMPLETE_TIMEOUT_SECONDS = float(os.environ.get("MODEL_RADAR_CLI_TIMEOUT", "300"))
 
 
 class CLIProviderError(Exception):
@@ -78,9 +81,9 @@ CLI_SPECS: tuple[CliSpec, ...] = (
         prompt_flag="-p",
         cmd_args=("--output-format", "json", "--mode", "plan", "--disable-slash-commands"),
         models=(
-            ("gemini-3.1-pro-high", "Gemini 3.1 Pro High (Subscription)", "S+", "70.0%", "1M"),
-            ("gemini-3.7-flash-high", "Gemini 3.7 Flash High (Subscription)", "S", "60.0%", "1M"),
-            ("gemini-3.6-flash-high", "Gemini 3.6 Flash High (Subscription)", "S", "60.0%", "1M"),
+            # Seeds only; `agy models` is the live catalog. gemini-3.1-pro-high is gone (2026-11-18).
+            ("gemini-3.8-flash-high", "Gemini 3.8 Flash High (Subscription)", "S", "60.0%", "1M"),
+            ("gemini-3.8-flash-medium", "Gemini 3.8 Flash Medium (Subscription)", "S", "60.0%", "1M"),
             ("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking (via agy)", "S+", "72.0%", "200k"),
             ("claude-sonnet-4-6", "Claude Sonnet 4.6 (via agy)", "S", "65.0%", "200k"),
             ("gpt-oss-120b-medium", "GPT-OSS 120B (via agy)", "S", "60.0%", "128k"),
@@ -217,6 +220,20 @@ def _extract_response_text(stdout: bytes, provider_key: str) -> str:
         ) from e
 
     if isinstance(data, dict):
+        # agy in plan mode: a prompt that makes the model reach for a tool (web search, shell) gets the action
+        # denied and an empty "response". Say so, instead of "no recognizable response field".
+        denied = data.get("denied_actions")
+        if denied and not str(data.get("response") or "").strip():
+            names = sorted({str(d.get("tool") or d.get("name") or d.get("action") or "?") if isinstance(d, dict) else str(d)
+                            for d in (denied if isinstance(denied, list) else [denied])})
+            raise CLIProviderError(
+                f"{provider_key} answered with no text: plan mode denied {len(names)} action(s) "
+                f"({', '.join(names)[:200]}). The prompt needs tools (likely web search); run the CLI directly "
+                f"with tools allowed, or ask for an answer from the model's own knowledge."
+            )
+        status = data.get("status")
+        if isinstance(status, str) and status.upper() not in ("SUCCESS", "OK") and not str(data.get("response") or "").strip():
+            raise CLIProviderError(f"{provider_key} returned status {status} with no text")
         for key in ("response", "result", "content", "text", "message"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
