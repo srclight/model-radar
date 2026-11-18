@@ -74,6 +74,11 @@ class TestInitSchema:
         init_schema(temp_db)
 
 
+# Providers whose catalog exists only at runtime (local daemon), so the seed is empty.
+LIVE_ONLY_PROVIDERS = {"ollama"}
+SEEDED_PROVIDERS = {key for key, p in PROVIDERS.items() if p.models}
+
+
 class TestSyncModels:
     def test_sync_all_providers(self, temp_db):
         """Test that sync_models syncs all providers."""
@@ -83,9 +88,12 @@ class TestSyncModels:
         # All providers should be synced
         assert len(stats) == len(PROVIDERS)
         
-        # Each provider should have at least 1 model
+        # sync_models writes seed rows only. A live-only provider (ollama)
+        # has an empty seed by design; every other provider must seed models.
         for provider_key, count in stats.items():
-            assert count > 0, f"{provider_key} should have models"
+            assert count == len(PROVIDERS[provider_key].models)
+            if provider_key not in LIVE_ONLY_PROVIDERS:
+                assert count > 0, f"{provider_key} should have models"
 
     def test_sync_creates_models(self, temp_db):
         """Test that sync creates model records."""
@@ -313,8 +321,8 @@ class TestGetStats:
         # Should have many active models
         assert stats['active_models'] > 100
         
-        # Should have 17 providers
-        assert stats['providers'] == len(PROVIDERS)
+        # Only providers with seed models have rows
+        assert stats['providers'] == len(SEEDED_PROVIDERS)
         
         # No pings yet
         assert stats['ping_results'] == 0
@@ -326,7 +334,7 @@ class TestGetProviderStats:
         provider_stats = get_provider_stats(synced_db)
         
         # Should have stats for each provider
-        assert len(provider_stats) == len(PROVIDERS)
+        assert set(provider_stats) == SEEDED_PROVIDERS
         
         for provider_key, pstats in provider_stats.items():
             assert 'total_models' in pstats

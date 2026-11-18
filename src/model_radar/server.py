@@ -101,6 +101,8 @@ or pin subscriptions for a parallel review — all through MCP tools.
 - batch_judge(items, rubric, scale?, judge_count?, concurrency?, results_file?) — Run evaluations at scale. \
   Processes items with bounded concurrency and returns summary statistics. \
   Set results_file for incremental JSONL output and automatic resume on interruption.
+- evaluate(state, questions, model_id?) — Typed judgments from TypeSafe Jev via Vercel AI Gateway: \
+  P(yes), choice + probabilities, or score on ordered levels. No text generation. Needs the vercel key.
 
 ## Tool guide — Pipeline utilities
 - recommend(job, count?, include_subscriptions?, free_only?) — Short diverse lineup for a job \
@@ -121,7 +123,7 @@ or pin subscriptions for a parallel review — all through MCP tools.
 - benchmark(...) — Quality-test models; results show in later scan/get_fastest.
 - setup_guide(provider?) — Signup instructions for unconfigured providers.
 - configure_key(provider, api_key, key_id?) — Add/update a named key (does not delete others).
-- credits(provider?) — Leftover USD/quota where a public API exists (OpenRouter, SiliconFlow, Groq headers).
+- credits(provider?) — Leftover USD/quota where a public API exists (OpenRouter, Vercel, SiliconFlow, Groq headers).
 - setup_workflow(step, provider_selection?) — Step-by-step setup (Playwright, providers, keys).
 - host_swap_instructions(model_id?, provider?, min_tier?) — Where to set base_url + model_id on the host.
 - restart_server() — (SSE only) Exit so process manager can restart. Allowed by default; set MODEL_RADAR_ALLOW_RESTART=0 to disable.
@@ -550,12 +552,42 @@ async def still_free(ping: bool = True, speed: str = "quality") -> str:
 async def credits(provider: str | None = None) -> str:
     """Read leftover credits or quota where a public API exists.
 
-    OpenRouter: prepaid USD remaining. SiliconFlow: prepaid balance.
-    Groq: remaining daily/minute rate limits (not dollars).
+    OpenRouter and Vercel AI Gateway: prepaid USD remaining. SiliconFlow:
+    prepaid balance. Groq: remaining daily/minute rate limits (not dollars).
     Most other hosts have no credit API — those are omitted, not guessed.
     """
     from .credits import fetch_credits
     return json.dumps(fetch_credits(provider), indent=2)
+
+
+@mcp.tool()
+async def evaluate(
+    state: str | dict | list,
+    questions: dict,
+    model_id: str = "typesafe-ai/jev",
+) -> str:
+    """Ask a typed evaluation model (TypeSafe Jev) questions about some state.
+
+    Jev never writes text. It returns P(yes) for boolean questions, a chosen
+    option plus probabilities for choice questions, and a position on ordered
+    levels for score questions. Several questions run in one request. Billed
+    through Vercel AI Gateway (input tokens only); needs the vercel key.
+
+    Question shapes (criteria describe options or levels):
+      {"refunded": {"type": "boolean", "instructions": "Was a refund issued?"}}
+      {"tone": {"type": "choice", "instructions": "Tone?", "criteria": {"calm": "...", "angry": "..."}}}
+      {"clarity": {"type": "score", "instructions": "How clear?", "criteria": ["unclear", "partly", "clear"]}}
+
+    A probability near 0.5 means uncertain, not medium. Option wording, labels
+    and order move the result, so vary them in calibration work.
+
+    Args:
+        state: Text, JSON object or array to evaluate.
+        questions: Map of question name to question object (see shapes above).
+        model_id: Gateway evaluation model id (default typesafe-ai/jev).
+    """
+    from .evaluate import evaluate as _evaluate
+    return json.dumps(await _evaluate(state, questions, model_id=model_id), indent=2)
 
 
 @mcp.tool()
