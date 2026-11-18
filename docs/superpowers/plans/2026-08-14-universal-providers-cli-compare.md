@@ -25,7 +25,7 @@
 | Capability | Where | Notes |
 |---|---|---|
 | 21 HTTPS providers, 219 static models | `providers.py` | NVIDIA, Groq, Cerebras, SambaNova, OpenRouter, HF, Replicate, DeepInfra, Fireworks, Mistral, Hyperbolic, Scaleway, Google AI, SiliconFlow, Together, Cloudflare, xAI, Inference.net, SEA-LION, Ollama, Perplexity |
-| API key store | `~/.model-radar/config.json` + env vars | 19/21 keys configured on this machine. Missing: `xai`, `perplexity` |
+| API key store | `~/.model-radar/config.json` + env vars | Most provider keys are configured on the development machine |
 | Setup wizard | `setup_guide`, `setup_workflow`, `configure_key` | Guides exist for 12 providers. Missing for CLI, xAI, OpenAI, Anthropic, DeepSeek, Cloudflare, etc. |
 | Parallel same-prompt | `ask()` / `ask_models()` | Auto-picks fastest UP models. **Cannot pin models.** |
 | Parallel batch | `batch_run()` | JSONL + resume |

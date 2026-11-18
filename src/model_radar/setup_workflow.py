@@ -9,7 +9,7 @@ needed (e.g. to choose which providers to set up).
 
 from __future__ import annotations
 
-from .config import CONFIG_PATH, get_api_key, load_config
+from .config import CONFIG_ENV_VAR, config_path, get_api_key, load_config
 from .guides import get_setup_guide
 from .providers import PROVIDERS
 
@@ -148,10 +148,10 @@ def _step3_login_instructions(provider_selection: list[str] | None) -> dict:
             "key_format": guide.get("key_format"),
             "github_sso": pkey in GITHUB_SSO_PROVIDERS,
             "where_to_save": {
-                "config_path": str(CONFIG_PATH),
+                "config_path": str(config_path()),
                 "tool_call": f'configure_key(provider="{pkey}", api_key="<paste key here>")',
                 "env_var": env_var,
-                "note": f"Keys are stored in {CONFIG_PATH} (0o600) or can be set via env var {env_var}.",
+                "note": f"Keys are stored in {config_path()} (0o600) or can be set via env var {env_var}.",
             },
         })
 
@@ -173,7 +173,7 @@ def _step4_where_to_save() -> dict:
     return {
         "step": 4,
         "title": "Where to save API keys",
-        "config_path": str(CONFIG_PATH),
+        "config_path": str(config_path()),
         "permissions_note": "File is created with 0o600 (read/write owner only). Never commit this file.",
         "methods": [
             "MCP tool: configure_key(provider, api_key) — writes to config_path.",
@@ -182,8 +182,9 @@ def _step4_where_to_save() -> dict:
         ],
         "security": [
             "Do not log or echo API keys in tool responses or terminal output.",
-            "Do not store keys in the project repo or in the private notes; only in config_path or env.",
-            "Local ./config.json in a project overrides ~/.model-radar/config.json for that project.",
+            "Do not store keys in a project repo or a synced notes folder; only in config_path or env.",
+            f"To keep the file elsewhere (an encrypted or removable volume), set {CONFIG_ENV_VAR} to its "
+            "full path. Only that file is then read and written; a config.json in the working directory is never read.",
         ],
     }
 

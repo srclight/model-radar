@@ -1,7 +1,8 @@
 """
 Configuration management for model-radar.
 
-Config file: ~/.model-radar/config.json
+Config file: ~/.model-radar/config.json by default. Set MODEL_RADAR_CONFIG to
+keep it somewhere else, for example on an encrypted or removable volume.
 Permissions: 0o600 (contains API keys)
 
 Config structure:
@@ -23,8 +24,13 @@ from .providers import PROVIDERS
 CONFIG_DIR = Path.home() / ".model-radar"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
-# Local config in working directory takes precedence over home dir
-LOCAL_CONFIG_PATH = Path("config.json")
+# Names a config file to use instead of CONFIG_PATH. Only that file is read
+# and written; there is no fallback to the home directory.
+CONFIG_ENV_VAR = "MODEL_RADAR_CONFIG"
+
+
+class ConfigError(Exception):
+    """The config file could not be read or written."""
 
 
 def _empty_config() -> dict:
@@ -35,42 +41,97 @@ def _empty_config() -> dict:
     }
 
 
-def _try_load(path: Path) -> dict | None:
-    """Try to load a config file, return None if missing/corrupt."""
-    if path.exists():
-        try:
-            raw = path.read_text().strip()
-            cfg = json.loads(raw)
-            if not isinstance(cfg.get("api_keys"), dict):
-                cfg["api_keys"] = {}
-            if not isinstance(cfg.get("providers"), dict):
-                cfg["providers"] = {}
-            return cfg
-        except (json.JSONDecodeError, OSError):
-            return None
-    return None
+def config_path() -> Path:
+    """The one config file in use: $MODEL_RADAR_CONFIG, else ~/.model-radar/config.json."""
+    override = os.environ.get(CONFIG_ENV_VAR, "").strip()
+    if override:
+        return Path(override).expanduser()
+    return CONFIG_PATH
+
+
+def _config_is_explicit() -> bool:
+    return bool(os.environ.get(CONFIG_ENV_VAR, "").strip())
+
+
+def _read(path: Path) -> tuple[dict | None, str | None]:
+    """Return (config, None), (None, None) when the file is absent, or (None, error)."""
+    try:
+        if not path.exists():
+            return None, None
+        cfg = json.loads(path.read_text().strip())
+    except OSError as e:
+        return None, f"cannot read {path}: {e.strerror or type(e).__name__}"
+    except json.JSONDecodeError as e:
+        return None, f"{path} is not valid JSON ({e.msg}, line {e.lineno})"
+    if not isinstance(cfg, dict):
+        return None, f"{path} must contain a JSON object"
+    if not isinstance(cfg.get("api_keys"), dict):
+        cfg["api_keys"] = {}
+    if not isinstance(cfg.get("providers"), dict):
+        cfg["providers"] = {}
+    return cfg, None
+
+
+def config_status() -> dict:
+    """Where the config lives and whether it loaded. Never includes secrets."""
+    path = config_path()
+    explicit = _config_is_explicit()
+    cfg, error = _read(path)
+    exists = cfg is not None or error is not None
+    if error is None and cfg is None and explicit:
+        error = (
+            f"{CONFIG_ENV_VAR} points to {path}, which does not exist. If it is on "
+            "a removable or encrypted volume, mount it. No API keys from the config "
+            "file are loaded until then."
+        )
+    return {
+        "path": str(path),
+        "source": CONFIG_ENV_VAR if explicit else "default",
+        "exists": exists,
+        "ok": error is None,
+        "error": error,
+    }
 
 
 def load_config() -> dict:
-    """Load config: ./config.json > ~/.model-radar/config.json > empty."""
-    # Local config takes precedence (project-level keys)
-    cfg = _try_load(LOCAL_CONFIG_PATH)
-    if cfg is not None:
-        return cfg
-    cfg = _try_load(CONFIG_PATH)
-    if cfg is not None:
-        return cfg
-    return _empty_config()
+    """Load the config file, or an empty config when it is absent or unreadable.
+
+    Call config_status() to tell an absent file from a broken one.
+    """
+    cfg, _error = _read(config_path())
+    return cfg if cfg is not None else _empty_config()
 
 
 def save_config(cfg: dict) -> None:
-    """Write config to disk with restricted permissions."""
+    """Write the config with owner-only permissions. Raises ConfigError on failure."""
+    path = config_path()
+    _existing, error = _read(path)
+    if error is not None:
+        raise ConfigError(f"refusing to overwrite a config that did not load: {error}")
+    if _config_is_explicit():
+        # Never create directories for an explicit path: on an unmounted volume
+        # that would write keys to the disk underneath the mount point.
+        if not path.parent.is_dir():
+            raise ConfigError(
+                f"{CONFIG_ENV_VAR} points into {path.parent}, which does not exist. "
+                "Mount the volume or create the directory, then retry."
+            )
+    else:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise ConfigError(f"cannot create {path.parent}: {e.strerror or e}") from e
     try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
-        CONFIG_PATH.chmod(0o600)
+        # Create with 0o600 so the file is never briefly readable by others.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(cfg, indent=2))
+    except OSError as e:
+        raise ConfigError(f"cannot write {path}: {e.strerror or e}") from e
+    try:
+        path.chmod(0o600)
     except OSError:
-        pass
+        pass  # filesystems without POSIX modes (FAT, some network mounts)
 
 
 _NO_AUTH_PROVIDERS = frozenset({"ollama"})

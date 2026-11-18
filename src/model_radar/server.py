@@ -24,6 +24,9 @@ from starlette.responses import JSONResponse
 
 from .cli_provider import is_cli_provider
 from .config import (
+    ConfigError,
+    config_path,
+    config_status,
     get_api_key,
     get_configured_providers,
     get_key_meta,
@@ -156,7 +159,8 @@ min_tier="A" means "A or better" (includes A+, S, S+).
   Manual: `model-radar serve --transport sse --port 8743 --web`.
 - **Privacy:** Do not log, echo, or send API keys off-host. list_providers and API responses \
   show only "configured" or "missing"; never the actual key. Keys are stored only in \
-  ~/.model-radar/config.json (0o600).
+  one config file (0o600): ~/.model-radar/config.json, or the file named by MODEL_RADAR_CONFIG. \
+  list_providers() reports its path and a config error if it did not load.
 """
 
 mcp = strict_server(name="model-radar", instructions=MCP_INSTRUCTIONS, reconnect_hint="check still_free / provider_status and reconnect the model-radar MCP")
@@ -181,6 +185,7 @@ def health_payload() -> dict:
         "listen": "127.0.0.1:8743",
         "tools": names,
         "has_still_free": "still_free" in names,
+        "config_ok": config_status()["ok"],
     }
 
 
@@ -236,12 +241,16 @@ async def list_providers() -> str:
         if kind == "cli":
             row["installed"] = bool(prov.cmd and shutil.which(prov.cmd))
         rows.append(row)
-    return json.dumps({
+    out = {
         "total_providers": len(PROVIDERS),
         "configured": len(configured),
         "total_models": total_models,
+        "config": config_status(),
         "providers": rows,
-    }, indent=2)
+    }
+    if out["config"]["error"]:
+        out["warning"] = "Config file did not load, so only env-var keys are in use: " + out["config"]["error"]
+    return json.dumps(out, indent=2)
 
 
 @mcp.tool()
@@ -451,7 +460,10 @@ async def configure_key(
 
     cfg = load_config()
     meta = set_api_key(cfg, provider, api_key, key_id=key_id or "default", make_active=make_active)
-    save_config(cfg)
+    try:
+        save_config(cfg)
+    except ConfigError as e:
+        return json.dumps({"success": False, "error": str(e), "config_path": str(config_path())}, indent=2)
 
     return json.dumps({
         "success": True,
@@ -460,7 +472,7 @@ async def configure_key(
         "active_key": meta["active"],
         "key_ids": meta["ids"],
         "message": f"Saved key '{key_id or 'default'}' for {PROVIDERS[provider].name}. "
-                   f"Active: {meta['active']}. Config: ~/.model-radar/config.json",
+                   f"Active: {meta['active']}. Config: {config_path()}",
     }, indent=2)
 
 
@@ -498,7 +510,7 @@ async def set_profile(
     funded: bool | None = None,
     login: str | None = None,
 ) -> str:
-    """Set local spend_ok / funded / login for a provider. Saved to ~/.model-radar/config.json.
+    """Set local spend_ok / funded / login for a provider. Saved to the config file.
 
     spend_ok: allow unprompted paid picks (default false).
     funded: a paid call would work (card or credits). Not permission.
@@ -517,7 +529,10 @@ async def set_profile(
         }, indent=2)
     cfg = load_config()
     set_provider_flags(cfg, provider, spend_ok=spend_ok, funded=funded, login=login)
-    save_config(cfg)
+    try:
+        save_config(cfg)
+    except ConfigError as e:
+        return json.dumps({"success": False, "error": str(e), "config_path": str(config_path())}, indent=2)
     flags = get_provider_flags(cfg, provider)
     return json.dumps({
         "success": True,
