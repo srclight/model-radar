@@ -21,7 +21,7 @@ def test_all_providers_defined():
         "huggingface", "replicate", "deepinfra", "fireworks", "codestral",
         "hyperbolic", "scaleway", "googleai", "siliconflow", "together",
         "cloudflare", "perplexity", "xai", "inferencenet", "sealion",
-        "ollama", "minimax",
+        "ollama", "minimax", "vercel",
     }
     # CLI providers may or may not be registered depending on PATH; allow extras.
     assert set(PROVIDERS.keys()) >= expected

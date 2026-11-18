@@ -23,7 +23,7 @@ FREE_TIER_PROVIDERS = frozenset(LANE_A_PROVIDERS - {"ollama"})
 PAID_PROVIDERS = frozenset({
     "minimax", "fireworks", "hyperbolic", "together", "deepinfra",
     "xai", "perplexity", "scaleway", "inferencenet", "cerebras",
-    "replicate", "siliconflow", "sambanova",
+    "replicate", "siliconflow", "sambanova", "vercel",
 })
 
 

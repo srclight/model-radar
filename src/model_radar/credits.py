@@ -83,8 +83,26 @@ def _groq_quota(cfg: dict) -> dict:
     }
 
 
+def _vercel(cfg: dict) -> dict:
+    headers = _auth(cfg, "vercel")
+    if not headers:
+        return {"provider": "vercel", "ok": False, "error": "no key"}
+    r = httpx.get("https://ai-gateway.vercel.sh/v1/credits", headers=headers, timeout=15.0)
+    if r.status_code != 200:
+        return {"provider": "vercel", "ok": False, "http": r.status_code}
+    data = r.json() or {}
+    return {
+        "provider": "vercel",
+        "ok": True,
+        "kind": "prepaid_usd",
+        "remaining": float(data.get("balance") or 0),
+        "used": float(data.get("total_used") or 0),
+    }
+
+
 _HANDLERS = {
     "openrouter": _openrouter,
+    "vercel": _vercel,
     "siliconflow": _siliconflow,
     "groq": _groq_quota,
 }
