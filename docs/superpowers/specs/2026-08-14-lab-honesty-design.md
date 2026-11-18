@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14  
 **Status:** approved to implement (user: spec + plan + review + implement)  
-**Scope:** model-radar repo only. Items 1–4 of private notes `2026-08-14-next-for-us`.  
+**Scope:** model-radar repo only. Items 1–4 of the maintainer's private next-steps note.  
 **Out of scope:** zhcorpus/strongs `eval_*.py` rewiring (item 5), proxy, new providers, billing CRM, models.dev.
 
 ## Goal
@@ -23,7 +23,7 @@ v0.11 made the wallet honest (lanes, named keys, `in_default_pool`, `credits()`)
 - `judge` / `backtranslate_eval` can pick the same family that wrote the gloss.
 - Scanner maps `>=500` to overloaded (so 529 is ok) but **402 is a generic error**; no 10-minute cooldown.
 
-private notes: `learnings.md`, `2026-08-14-next-for-us.md`, `2026-08-14-zhcorpus-papers-how-we-used-radar.md`.
+Background notes are kept privately by the maintainer and are not in this repo.
 
 ## Architecture
 

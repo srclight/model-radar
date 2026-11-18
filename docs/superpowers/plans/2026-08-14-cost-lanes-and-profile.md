@@ -6,7 +6,7 @@
 
 **Architecture:** A tiny `lanes.py` classifies provider/model as A (never invoices), B (subscription CLI), or C (money). Local `~/.model-radar/config.json` `providers.<key>` already exists; add two bits there: `spend_ok` (unprompted paid pick) and `funded` (a paid call would work). No new file, nothing checked in with secrets.
 
-**Spec:** `private-notes/2026-08-14-provider-cost-lanes.md`
+**Spec:** kept in the maintainer's private notes, not in this repo
 
 **Stack:** existing Python package, pytest, FastMCP, click.
 
@@ -25,7 +25,7 @@
 
 - Create: `src/model_radar/lanes.py`, `tests/test_lanes.py`
 - Modify: `cost.py`, `config.py`, `recommend.py`, `scanner.py`, `server.py`, `cli.py`, `config.example.json`, `tests/test_cost.py`, `tests/test_config.py`, `tests/test_recommend.py`, `tests/test_server.py`
-- Local only (never commit): `~/.model-radar/config.json`. Identity and wallets: `a private location outside the repo`. Discussion: private notes.
+- Local only (never commit): `~/.model-radar/config.json`. Account identity and billing details stay outside the repo.
 
 ## Tasks
 
@@ -54,4 +54,4 @@ CLI: `model-radar profile` and `model-radar profile set KEY [--funded/--no-funde
 
 ### 5. Local seed only
 
-Seed `funded` / `login` in `~/.model-radar/config.json` and `a private location outside the repo`. Never commit those values.
+Seed `funded` / `login` in `~/.model-radar/config.json`. Never commit those values.

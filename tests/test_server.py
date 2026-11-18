@@ -105,7 +105,7 @@ async def test_profile_and_set_profile_roundtrip(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(config_mod, "CONFIG_DIR", tmp_path)
-    monkeypatch.setattr(config_mod, "LOCAL_CONFIG_PATH", tmp_path / "no-local.json")
+    monkeypatch.delenv("MODEL_RADAR_CONFIG", raising=False)
     (tmp_path / "config.json").write_text('{"api_keys": {}, "providers": {}}')
 
     listed = json.loads(await profile())

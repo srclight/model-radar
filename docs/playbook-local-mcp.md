@@ -43,6 +43,19 @@ Do **not** `kill` + `nohup` a second copy. The unit will respawn and you will fi
 
 Stored in `~/.model-radar/config.json` (mode 600). Env vars override.
 
+To keep the file on an encrypted or removable volume, point `MODEL_RADAR_CONFIG` at it. For the systemd unit, add the line under `[Service]` and reload:
+
+```ini
+Environment=MODEL_RADAR_CONFIG=/path/to/secure-volume/model-radar.json
+```
+
+```sh
+systemctl --user daemon-reload && ./scripts/restart-mcp.sh
+curl -s http://127.0.0.1:8743/healthz   # "config_ok": true once the volume is mounted
+```
+
+The unit can start before the volume is mounted. It then runs with no file keys and `config_ok: false`; because the file is read on each call, keys appear as soon as the volume is mounted, with no restart.
+
 ```sh
 model-radar configure minimax "$MINIMAX_API_KEY"
 # or MCP: configure_key(provider="minimax", api_key="…")
@@ -55,14 +68,14 @@ Do not put a MiniMax token in `ANTHROPIC_AUTH_TOKEN` globally — that hijacks C
 
 ```
 still_free(speed="fast")                   # Lane A set, 3 chats/host (Ollama: one 9B)
-recommend(job="dict")                      # Paper B lineup; then pin still_free-up ids
+recommend(job="dict")                      # dictionary lineup; then pin still_free-up ids
 recommend(job="review", include_subscriptions=True)
 quality_probe(job="dict", count=3)         # five headwords (China/Taiwan + COVID)
 quality_probe(job="rewrite", model_ids=["groq/openai/gpt-oss-120b"])
 judge(..., exclude_providers=["minimax"])  # pin 120B-class; skip <27B
 ```
 
-Jobs: `translate` (EN→ZH), `rewrite` (lemma-study sentence), `review` (bare `return` bug), `dict` (Paper B five headwords). CLI: `model-radar still-free --speed fast` and `model-radar probe -j dict -n 3`.
+Jobs: `translate` (EN→ZH), `rewrite` (one scholarly sentence, keeping a technical term's sense), `review` (bare `return` bug), `dict` (five dictionary headwords). CLI: `model-radar still-free --speed fast` and `model-radar probe -j dict -n 3`.
 
 ## Pinning models (do not auto-spend subscriptions)
 

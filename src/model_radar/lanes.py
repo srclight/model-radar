@@ -1,6 +1,6 @@
 """Spend lanes: A never invoices, B is a monthly CLI, C can charge.
 
-See private-notes/2026-08-14-provider-cost-lanes.md
+See docs/superpowers/plans/2026-08-14-cost-lanes-and-profile.md
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from mcp.server.mcpserver import MCPServer
 
-# Shared estate policy, provided by the ironmcp package. Refuses unknown tool
+# Strict-argument policy, provided by the ironmcp package. Refuses unknown tool
 # arguments instead of silently discarding them, and advertises additionalProperties:false so
 # the advertised catalog matches what the runtime enforces.
 from ironmcp import strict_server
@@ -24,6 +24,9 @@ from starlette.responses import JSONResponse
 
 from .cli_provider import is_cli_provider
 from .config import (
+    ConfigError,
+    config_path,
+    config_status,
     get_api_key,
     get_configured_providers,
     get_key_meta,
@@ -62,7 +65,7 @@ or pin subscriptions for a parallel review — all through MCP tools.
 - "Compare answers from several models" → ask(prompt, count=3)
 - "Review this on Claude + Grok + Gemini" → ask(prompt, providers=["claude","grok","gemini"])
 - "What should I use for translation / rewrite / code review?" → recommend(job="translate"|"rewrite"|"review")
-- "Time and score a few models on a translation / lemma rewrite / code review" → quality_probe(job=…)
+- "Time and score a few models on a translation / prose rewrite / code review" → quality_probe(job=…)
 - "Refresh the model list from the internet" → refresh_models()
 - "Run these prompts in batch" → batch_run(prompts=[{"prompt": "..."}, ...])
 - "Check which models actually work" → scan(verify=True) or get_fastest(verified=True)
@@ -109,7 +112,7 @@ or pin subscriptions for a parallel review — all through MCP tools.
   (translate|rewrite|review|code). Chat models only, one per provider. CLIs opt-in. \
   Use refs with ask(model_ids=…) or quality_probe(model_ids=…).
 - quality_probe(job, model_ids?, providers?, count?) — Timed pass/fail on a fixed prompt \
-  (EN→ZH, lemma rewrite, or a bare-return code bug).
+  (EN→ZH, a prose rewrite, a bare-return code bug, or five dictionary headwords).
 - get_workers(count?, min_tier?, free_only?, verified?) — Get N verified-alive models across N distinct providers, \
   tier >= min_tier, ranked by latency. The single most common call pattern for translation pipelines. \
   Returns model_ids ready to use with run() or batch_run().
@@ -124,6 +127,8 @@ or pin subscriptions for a parallel review — all through MCP tools.
 - setup_guide(provider?) — Signup instructions for unconfigured providers.
 - configure_key(provider, api_key, key_id?) — Add/update a named key (does not delete others).
 - credits(provider?) — Leftover USD/quota where a public API exists (OpenRouter, Vercel, SiliconFlow, Groq headers).
+- still_free(ping?, speed?) — Which never-invoicing hosts still answer; up to 3 chat models per host. \
+  Call before a long batch or judging run. speed=fast prefers small/flash ids.
 - setup_workflow(step, provider_selection?) — Step-by-step setup (Playwright, providers, keys).
 - host_swap_instructions(model_id?, provider?, min_tier?) — Where to set base_url + model_id on the host.
 - restart_server() — (SSE only) Exit so process manager can restart. Allowed by default; set MODEL_RADAR_ALLOW_RESTART=0 to disable.
@@ -156,7 +161,8 @@ min_tier="A" means "A or better" (includes A+, S, S+).
   Manual: `model-radar serve --transport sse --port 8743 --web`.
 - **Privacy:** Do not log, echo, or send API keys off-host. list_providers and API responses \
   show only "configured" or "missing"; never the actual key. Keys are stored only in \
-  ~/.model-radar/config.json (0o600).
+  one config file (0o600): ~/.model-radar/config.json, or the file named by MODEL_RADAR_CONFIG. \
+  list_providers() reports its path and a config error if it did not load.
 """
 
 mcp = strict_server(name="model-radar", instructions=MCP_INSTRUCTIONS, reconnect_hint="check still_free / provider_status and reconnect the model-radar MCP")
@@ -181,6 +187,7 @@ def health_payload() -> dict:
         "listen": "127.0.0.1:8743",
         "tools": names,
         "has_still_free": "still_free" in names,
+        "config_ok": config_status()["ok"],
     }
 
 
@@ -236,12 +243,16 @@ async def list_providers() -> str:
         if kind == "cli":
             row["installed"] = bool(prov.cmd and shutil.which(prov.cmd))
         rows.append(row)
-    return json.dumps({
+    out = {
         "total_providers": len(PROVIDERS),
         "configured": len(configured),
         "total_models": total_models,
+        "config": config_status(),
         "providers": rows,
-    }, indent=2)
+    }
+    if out["config"]["error"]:
+        out["warning"] = "Config file did not load, so only env-var keys are in use: " + out["config"]["error"]
+    return json.dumps(out, indent=2)
 
 
 @mcp.tool()
@@ -451,7 +462,10 @@ async def configure_key(
 
     cfg = load_config()
     meta = set_api_key(cfg, provider, api_key, key_id=key_id or "default", make_active=make_active)
-    save_config(cfg)
+    try:
+        save_config(cfg)
+    except ConfigError as e:
+        return json.dumps({"success": False, "error": str(e), "config_path": str(config_path())}, indent=2)
 
     return json.dumps({
         "success": True,
@@ -460,7 +474,7 @@ async def configure_key(
         "active_key": meta["active"],
         "key_ids": meta["ids"],
         "message": f"Saved key '{key_id or 'default'}' for {PROVIDERS[provider].name}. "
-                   f"Active: {meta['active']}. Config: ~/.model-radar/config.json",
+                   f"Active: {meta['active']}. Config: {config_path()}",
     }, indent=2)
 
 
@@ -498,7 +512,7 @@ async def set_profile(
     funded: bool | None = None,
     login: str | None = None,
 ) -> str:
-    """Set local spend_ok / funded / login for a provider. Saved to ~/.model-radar/config.json.
+    """Set local spend_ok / funded / login for a provider. Saved to the config file.
 
     spend_ok: allow unprompted paid picks (default false).
     funded: a paid call would work (card or credits). Not permission.
@@ -517,7 +531,10 @@ async def set_profile(
         }, indent=2)
     cfg = load_config()
     set_provider_flags(cfg, provider, spend_ok=spend_ok, funded=funded, login=login)
-    save_config(cfg)
+    try:
+        save_config(cfg)
+    except ConfigError as e:
+        return json.dumps({"success": False, "error": str(e), "config_path": str(config_path())}, indent=2)
     flags = get_provider_flags(cfg, provider)
     return json.dumps({
         "success": True,
@@ -533,7 +550,7 @@ async def set_profile(
 async def still_free(ping: bool = True, speed: str = "quality") -> str:
     """Lane A sweep: identify which default-pool hosts still answer.
 
-    Use this before a Strong's judge night or dictmaster retranslate.
+    Use this before a long batch or judging run.
     Pings up to 3 chat models per host in parallel so you get a small
     live set. speed=quality ranks by tier; speed=fast prefers small /
     flash / lite ids (Cloudflare 20B before a 120B that needs >10s).
@@ -771,7 +788,7 @@ async def recommend(
 ) -> str:
     """Recommend a short diverse lineup for a job (no ping).
 
-    Jobs: translate (EN/ZH and review), rewrite (lemma-study prose),
+    Jobs: translate (EN/ZH and review), rewrite (scholarly prose),
     review (code implementations), code (general coding).
 
     Returns chat models only, at most one per provider. Subscription CLIs
@@ -816,9 +833,9 @@ async def quality_probe(
     """Time and score a few models on a fixed probe for a job.
 
     translate — EN→ZH one sentence (CJK present, no prompt echo)
-    rewrite   — lemma-study sentence (keep δικαιόω / righteous sense)
+    rewrite   — one scholarly sentence (keep the sense of δικαιόω, 'declare righteous')
     review    — spot a bare `return` in first_even()
-    dict      — Paper B five headwords (geography + covid, no echo)
+    dict      — five dictionary headwords (geography + covid, no echo)
 
     Omit model_ids to use recommend() for this job.
 

@@ -6,14 +6,14 @@ endpoint + model id). Includes Cursor, Claude Code, Open Interpreter, OpenClaw.
 
 from __future__ import annotations
 
-from .config import CONFIG_PATH, load_config
+from .config import config_path, load_config
 from .db import get_models_for_discovery
 from .endpoints import get_base_url, get_openai_endpoint_for_model
 from .providers import TIER_ORDER
 
 # Where model-radar stores API keys (so host can tell user or read for swap)
 MODEL_RADAR_KEY_LOCATIONS = {
-    "primary_config": str(CONFIG_PATH),
+    "primary_config": str(config_path()),
     "primary_config_note": "0o600, contains api_keys per provider. Prefer env vars to avoid writing keys to disk.",
     "env_override": "Per-provider env vars (e.g. GROQ_API_KEY) override config. See list_providers() for env_vars.",
     "local_override": "Project ./config.json in cwd overrides ~/.model-radar/config.json when present.",

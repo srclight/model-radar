@@ -21,8 +21,8 @@ From the spec and project CLAUDE.md:
 - Branch: `develop` (feature branches merge to develop via `--no-ff`)
 - API keys live in `~/.model-radar/config.json` (0o600); never commit them
 - `is_free=True` flag for subscription models (free to user, just needs their existing subscription)
-- `gemini` CLI is already installed at `~/.config/nvm/versions/node/v22.22.0/bin/gemini` (v0.55.1)
-- `grok` CLI is already installed at `~/.local/bin/grok`
+- `gemini` CLI is already installed and on PATH (v0.55.1)
+- `grok` CLI is already installed and on PATH
 - Both have non-interactive JSON output modes
 
 ## File Structure

@@ -25,6 +25,16 @@ export NVIDIA_API_KEY=nvapi-xxx
 
 Or copy the template: `cp config.example.json ~/.model-radar/config.json` and edit it.
 
+**Keeping keys somewhere else.** Set `MODEL_RADAR_CONFIG` to the full path of the config file, for example one on an encrypted or removable volume:
+
+```sh
+export MODEL_RADAR_CONFIG=/path/to/secure-volume/model-radar.json
+```
+
+Only that file is then read and written. If it is missing (say, the volume is not mounted), model-radar loads no keys from disk, says so in `list_providers()` and `/healthz` (`config_ok: false`), and refuses to save rather than create the path. It never falls back to the home directory, and a `config.json` in the working directory is never read. Provider env vars such as `GROQ_API_KEY` still override the file.
+
+See [Keys and security](#keys-and-security) for what model-radar does with keys.
+
 ### 2. Add to your MCP client
 
 **Claude Code** (`~/.claude/settings.json`):
@@ -106,12 +116,27 @@ model-radar providers
 model-radar configure nvidia nvapi-xxx
 ```
 
+## Keys and security
+
+- **One file holds the keys.** It is `~/.model-radar/config.json`, or the file named by `MODEL_RADAR_CONFIG`, created with mode `0600`. Provider env vars override it. Nothing else is read.
+- **Keys are never returned.** `list_providers()`, `profile()` and `/healthz` report `configured` or `missing`, the names of stored keys, and the config path. They never include a key value.
+- **Keys go only to their own provider.** A key is sent to that provider's API endpoint and nowhere else. There is no telemetry.
+- **The HTTP server binds to `127.0.0.1`.** The dashboard and its REST routes are off unless you pass `--web`.
+- **Do not commit a config file.** `config.json` is in `.gitignore`; `config.example.json` is the template.
+
+| Environment variable | Purpose |
+|----------------------|---------|
+| `MODEL_RADAR_CONFIG` | Full path of the config file to use in place of `~/.model-radar/config.json` |
+| `MODEL_RADAR_CLI_TIMEOUT` | Seconds to wait for a subscription CLI to answer (default 300) |
+| `MODEL_RADAR_ALLOW_RESTART` | Set to `0` to disable the `restart_server()` tool |
+| `<PROVIDER>_API_KEY` | A provider key; see the Providers table for each name |
+
 ## MCP argument validation
 
 Unknown tool arguments are **refused**, not silently dropped — a mistyped filter is rejected with an
 error, never answered as if it were applied. Every tool advertises `additionalProperties: false`.
-The guard is the shared [`mcpkit`](https://github.com/srclight/mcpkit) policy, vendored as one
-hash-verified file (`src/model_radar/_mcpkit.py`).
+The guard comes from [`ironmcp`](https://github.com/srclight/ironmcp) (`strict_server`), and
+`tests/test_conformance.py` checks that every tool enforces what it advertises.
 
 **AI agents:** an `unknown argument(s): … running older code … reconnect` error means the running
 server predates the argument you sent — nothing ran; reconnect the MCP rather than retrying the same
@@ -192,7 +217,7 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 - **`run(prompt, model_id?, free_only?)`** — Execute on fastest model with auto-fallback
 - **`ask(prompt, count=3, model_ids?, providers?)`** — Same prompt on N models (Ollama sequential, remotes parallel)
 - **`recommend(job)`** — Short diverse lineup for `translate` / `rewrite` / `review` / `code` / `dict`
-- **`quality_probe(job)`** — Time + pass/fail on a fixed prompt (`dict` = Paper B five headwords)
+- **`quality_probe(job)`** — Time + pass/fail on a fixed prompt (`translate`, `rewrite`, `review`, or `dict`: five dictionary headwords)
 - **`still_free(speed?)`** — Which Lane A hosts still answer; up to 3 chat models each in parallel (`speed=fast` prefers small/flash ids)
 - **`batch_run(prompts, results_file?)`** — Batch execution with incremental JSONL, resume support, adaptive concurrency
 
@@ -207,9 +232,16 @@ ask(prompt="…", model_ids=["sonnet", "grok-4.6"])
 - **`benchmark(model_id?)`** — Quality-test with 5 coding challenges
 - **`refresh_models()`** — Fetch live lists and replace each provider’s catalog (purge retired ids)
 - **`setup_guide(provider?)`** — Setup instructions for unconfigured providers
-- **`configure_key(provider, api_key)`** — Save an API key
+- **`setup_workflow(step, provider_selection?)`** — Step-by-step setup for an agent guiding a user through provider signups
+- **`configure_key(provider, api_key, key_id?, make_active?)`** — Save a named API key; other keys on the provider are kept
+- **`host_swap_instructions(model_id?, provider?, min_tier?)`** — Base URL and model id to set in a host app (Cursor, Claude Code, and others), and where each app keeps its settings
 - **`restart_server()`** — Restart for code updates (SSE mode)
 - **`server_stats()`** — Uptime and start time
+
+### Spend control
+- **`profile()`** — Spend lane of each provider (A never invoices, B is a monthly CLI, C can charge) with your `funded` and `spend_ok` flags. No secrets
+- **`set_profile(provider, spend_ok?, funded?, login?)`** — Set those flags. A provider that can charge is never picked unprompted unless it is funded and `spend_ok` is true
+- **`credits(provider?)`** — Remaining prepaid balance or quota where the provider has an API for it (OpenRouter, Vercel AI Gateway, SiliconFlow, Groq)
 
 ## Tier Scale (SWE-bench Verified)
 
