@@ -30,11 +30,24 @@ Model Radar is an MCP server that discovers, pings, and executes prompts on free
 | `quality.py` | Persistent quality memory — stores benchmark scores across sessions |
 | `guides.py` | Provider setup wizard — structured setup instructions for agents |
 | `config.py` | Config management (`~/.model-radar/config.json`, or the file named by `MODEL_RADAR_CONFIG`), API key resolution |
-| `server.py` | FastMCP server, all MCP tool definitions |
+| `server.py` | MCP server (`ironmcp.strict_server` on the mcp v2 SDK), all MCP tool definitions, `/healthz` |
 | `cli.py` | Click CLI — serve, scan, providers, db commands |
 | `db.py` | SQLite persistence for model catalog and ping results |
 | `provider_sync.py` | Live `/v1/models` fetch, TTL refresh, purge+add, CLI catalog replace |
 | `cli_provider.py` | Subscription CLIs (`claude`, `grok`, `agy`, `codex`) as single-turn completions |
+| `lanes.py` | Spend lanes: A never invoices, B is a monthly CLI, C can charge |
+| `cost.py` | Cost class of a model (`zero`, `free_tier`, `subscription`, `local`, `paid`, `unknown`) |
+| `credits.py` | Remaining balance or quota, for the few providers that expose one |
+| `cooldown.py` | Process-local provider cooldown after 401/402/429/529 |
+| `recommend.py` | Short, provider-diverse lineup for a job (`translate`, `rewrite`, `review`, `code`, `dict`) |
+| `probe.py` | Timed pass/fail quality probe on a fixed prompt per job |
+| `sweep.py` | `still_free`: which never-invoicing hosts still answer |
+| `evaluate.py` | Typed evaluation models (TypeSafe Jev) through Vercel AI Gateway |
+| `endpoints.py` | OpenAI-compatible base URL and model id for a given model |
+| `host_swap.py` | Where host apps keep their model settings, for swap instructions |
+| `setup_workflow.py` | Step-by-step provider setup for a host agent |
+| `web.py` | Optional dashboard and REST routes (`serve --transport sse --web`) |
+| `availability_check.py`, `check_free.py`, `ping_test.py` | Maintenance scripts: obsolete ids, free vs paid, ping every model |
 
 ## Data Flow
 
@@ -65,7 +78,16 @@ The server uses **Streamable HTTP** (MCP spec 2025-03-26) with `stateless_http=T
 
 ### Why stateless?
 
-Stateful sessions (the FastMCP default) create a server-side session per client connection. When the server restarts, those sessions are lost and clients get `-32600 Session not found` errors. Since model-radar tools are all stateless request/response (no subscriptions, no streaming state), `stateless_http=True` is the correct choice.
+Stateful sessions (the SDK default) create a server-side session per client connection. When the server restarts, those sessions are lost and clients get `-32600 Session not found` errors. Since model-radar tools are all stateless request/response (no subscriptions, no streaming state), `stateless_http=True` is the correct choice.
+
+## Configuration and keys
+
+`config.py` resolves exactly one config file: the path in `MODEL_RADAR_CONFIG` if set, otherwise `~/.model-radar/config.json`. A provider env var overrides the key in the file.
+
+- An explicit path is never created and never replaced by a fallback. If it is missing, `load_config()` returns an empty config and `config_status()` carries the error, which `list_providers()` and `/healthz` (`config_ok`) surface.
+- `save_config()` raises `ConfigError` when the write fails or when the existing file does not parse, so a broken file is never overwritten.
+- The file is created with mode `0600`. Tool responses carry key names and status only, never values.
+- The test suite points the default path at a temp directory (`tests/conftest.py`), so tests never touch a real config.
 
 ## Rate Limiting
 

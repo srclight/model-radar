@@ -9,6 +9,8 @@
 - `list_providers()` returns a `config` block (path, source, ok, error) and `/healthz` returns `config_ok`. Neither contains key material.
 - Tests no longer read the developer's real config file.
 - Docs: removed machine-specific paths from the design notes under `docs/superpowers/`.
+- Docs: the README gains a Keys and security section, an environment variable table, and the five tools it had not listed (`profile`, `set_profile`, `credits`, `setup_workflow`, `host_swap_instructions`). The architecture doc covers every module and the config rules. The argument-validation notes now describe `ironmcp`, which replaced the vendored guard in 0.13.0.
+- `still_free` is listed in the server's tool guide. `server.json` carries a current description.
 
 ## 0.14.0 — 2026-11-18
 

@@ -68,14 +68,14 @@ Do not put a MiniMax token in `ANTHROPIC_AUTH_TOKEN` globally — that hijacks C
 
 ```
 still_free(speed="fast")                   # Lane A set, 3 chats/host (Ollama: one 9B)
-recommend(job="dict")                      # Paper B lineup; then pin still_free-up ids
+recommend(job="dict")                      # dictionary lineup; then pin still_free-up ids
 recommend(job="review", include_subscriptions=True)
 quality_probe(job="dict", count=3)         # five headwords (China/Taiwan + COVID)
 quality_probe(job="rewrite", model_ids=["groq/openai/gpt-oss-120b"])
 judge(..., exclude_providers=["minimax"])  # pin 120B-class; skip <27B
 ```
 
-Jobs: `translate` (EN→ZH), `rewrite` (lemma-study sentence), `review` (bare `return` bug), `dict` (Paper B five headwords). CLI: `model-radar still-free --speed fast` and `model-radar probe -j dict -n 3`.
+Jobs: `translate` (EN→ZH), `rewrite` (one scholarly sentence, keeping a technical term's sense), `review` (bare `return` bug), `dict` (five dictionary headwords). CLI: `model-radar still-free --speed fast` and `model-radar probe -j dict -n 3`.
 
 ## Pinning models (do not auto-spend subscriptions)
 
