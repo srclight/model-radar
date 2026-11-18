@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **`MODEL_RADAR_CONFIG`** names the config file to use in place of `~/.model-radar/config.json`, so keys can live on an encrypted or removable volume. Only that file is read and written. If it is missing, model-radar loads no keys from disk and reports the problem; it never falls back to the home directory and never creates the path.
+- **Changed:** a `config.json` in the working directory is no longer read. It let whatever directory the server started in supply the keys. To keep the old behaviour, set `MODEL_RADAR_CONFIG=./config.json`.
+- **Changed:** a failed save is now an error. `configure_key`, `set_profile` and the CLI used to report success when the file could not be written. A config file that does not parse is never overwritten.
+- The config file is created with mode 0o600 from the start, where it was previously written and then restricted.
+- `list_providers()` returns a `config` block (path, source, ok, error) and `/healthz` returns `config_ok`. Neither contains key material.
+- Tests no longer read the developer's real config file.
+- Docs: removed machine-specific paths from the design notes under `docs/superpowers/`.
+
 ## 0.14.0 — 2026-11-18
 
 - **Vercel AI Gateway** provider (`AI_GATEWAY_API_KEY`). The live catalog keeps only `type=language` models, `credits` reports the prepaid USD balance, and `setup_guide` covers signup. Requests return 403 `customer_verification_required` until a card is on file.

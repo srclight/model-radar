@@ -29,7 +29,7 @@ Model Radar is an MCP server that discovers, pings, and executes prompts on free
 | `benchmark.py` | Quick coding quality tests (5 challenges, pass/fail scoring) |
 | `quality.py` | Persistent quality memory — stores benchmark scores across sessions |
 | `guides.py` | Provider setup wizard — structured setup instructions for agents |
-| `config.py` | Config management (~/.model-radar/config.json), API key resolution |
+| `config.py` | Config management (`~/.model-radar/config.json`, or the file named by `MODEL_RADAR_CONFIG`), API key resolution |
 | `server.py` | FastMCP server, all MCP tool definitions |
 | `cli.py` | Click CLI — serve, scan, providers, db commands |
 | `db.py` | SQLite persistence for model catalog and ping results |

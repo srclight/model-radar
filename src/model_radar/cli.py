@@ -188,7 +188,7 @@ def configure(provider: str, api_key: str, key_id: str, active: bool | None):
 
     Example: model-radar configure minimax sk-cp-xxx --id coding-plan
     """
-    from .config import CONFIG_PATH, load_config, save_config, set_api_key
+    from .config import ConfigError, config_path, load_config, save_config, set_api_key
     from .providers import PROVIDERS
 
     if provider not in PROVIDERS:
@@ -198,10 +198,14 @@ def configure(provider: str, api_key: str, key_id: str, active: bool | None):
 
     cfg = load_config()
     meta = set_api_key(cfg, provider, api_key, key_id=key_id, make_active=active)
-    save_config(cfg)
+    try:
+        save_config(cfg)
+    except ConfigError as e:
+        click.echo(f"Not saved: {e}", err=True)
+        raise SystemExit(1)
     click.echo(
         f"Saved {PROVIDERS[provider].name} key '{key_id}' "
-        f"(active={meta['active']}) to {CONFIG_PATH}"
+        f"(active={meta['active']}) to {config_path()}"
     )
 
 
@@ -247,7 +251,7 @@ def profile(ctx: click.Context):
 @click.option("--login", default=None, help="How you signed up, e.g. github:youruser or google:you@example.com")
 def profile_set(provider: str, spend_ok: bool | None, funded: bool | None, login: str | None):
     """Set spend_ok / funded / login for a provider (local config only)."""
-    from .config import CONFIG_PATH, load_config, save_config, set_provider_flags, get_provider_flags
+    from .config import ConfigError, config_path, load_config, save_config, set_provider_flags, get_provider_flags
     from .lanes import provider_lane
     from .providers import PROVIDERS
 
@@ -259,12 +263,16 @@ def profile_set(provider: str, spend_ok: bool | None, funded: bool | None, login
         raise SystemExit(1)
     cfg = load_config()
     set_provider_flags(cfg, provider, spend_ok=spend_ok, funded=funded, login=login)
-    save_config(cfg)
+    try:
+        save_config(cfg)
+    except ConfigError as e:
+        click.echo(f"Not saved: {e}", err=True)
+        raise SystemExit(1)
     flags = get_provider_flags(cfg, provider)
     click.echo(
         f"{provider} lane={provider_lane(provider)} "
         f"spend_ok={flags['spend_ok']} funded={flags['funded']} "
-        f"login={flags['login'] or '—'} → {CONFIG_PATH}"
+        f"login={flags['login'] or '—'} → {config_path()}"
     )
 
 

@@ -25,6 +25,14 @@ export NVIDIA_API_KEY=nvapi-xxx
 
 Or copy the template: `cp config.example.json ~/.model-radar/config.json` and edit it.
 
+**Keeping keys somewhere else.** Set `MODEL_RADAR_CONFIG` to the full path of the config file, for example one on an encrypted or removable volume:
+
+```sh
+export MODEL_RADAR_CONFIG=/path/to/secure-volume/model-radar.json
+```
+
+Only that file is then read and written. If it is missing (say, the volume is not mounted), model-radar loads no keys from disk, says so in `list_providers()` and `/healthz` (`config_ok: false`), and refuses to save rather than create the path. It never falls back to the home directory, and a `config.json` in the working directory is never read. Provider env vars such as `GROQ_API_KEY` still override the file.
+
 ### 2. Add to your MCP client
 
 **Claude Code** (`~/.claude/settings.json`):

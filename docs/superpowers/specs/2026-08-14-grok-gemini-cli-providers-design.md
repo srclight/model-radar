@@ -25,8 +25,8 @@ Model-radar currently supports 21 HTTPS-API providers (NVIDIA, Groq, Cerebras, S
 
 Both xAI and Google ship official CLI tools that ride the subscription:
 
-- **Grok Build CLI** (`grok` on PATH, already installed at `~/.local/bin/grok`) — uses X-account OAuth by default, which counts against the user's SuperGrok subscription. Source: [xAI Grok Build docs](https://docs.x.ai/build/overview). Auth: `grok login` (browser X flow); response: `grok -p "..." --output-format json`.
-- **Gemini CLI** (`@google/gemini-cli` on npm, version 0.55.1, installed at `~/.config/nvm/versions/node/v22.22.0/bin/gemini`) — uses Google OAuth by default, which counts against the user's Google Workspaces subscription. Source: [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli). Auth: `gemini auth login`; response: `gemini -p "..." --output-format json`.
+- **Grok Build CLI** (`grok` on PATH, already installed) — uses X-account OAuth by default, which counts against the user's SuperGrok subscription. Source: [xAI Grok Build docs](https://docs.x.ai/build/overview). Auth: `grok login` (browser X flow); response: `grok -p "..." --output-format json`.
+- **Gemini CLI** (`@google/gemini-cli` on npm, version 0.55.1, installed) — uses Google OAuth by default, which counts against the user's Google Workspaces subscription. Source: [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli). Auth: `gemini auth login`; response: `gemini -p "..." --output-format json`.
 
 The CLIs both support:
 - Non-interactive single-prompt mode (`-p` / `--prompt` / `--single`)
@@ -264,5 +264,4 @@ Add `claude` (and `codex` if on PATH) via the same `CLI_SPECS` table. `ask(model
 - [Google Gemini CLI on GitHub](https://github.com/google-gemini/gemini-cli)
 - [MCP vs CLI bridge pattern (MindStudio)](https://www.mindstudio.ai/blog/mcp-servers-vs-cli-tools-for-ai-agents)
 - [MCP CLI tooling (Philschmid)](https://www.philschmid.de/mcp-cli)
-- Internal: `a private credentials file` (xAI account info, Google AI API key)
 - Internal: `~/.model-radar/config.json` (current API key state)

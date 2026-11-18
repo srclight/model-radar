@@ -1,8 +1,6 @@
 """Tests for config management."""
 
-import json
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 from model_radar.config import (
@@ -28,9 +26,9 @@ def test_empty_config_shape():
 
 
 def _no_local(tmp_path):
-    """Patch both local and home config paths to isolate tests."""
+    """Patch the home config dir, and clear any MODEL_RADAR_CONFIG from the caller's shell."""
     return (
-        patch("model_radar.config.LOCAL_CONFIG_PATH", tmp_path / "no-local.json"),
+        patch.dict(os.environ, {"MODEL_RADAR_CONFIG": ""}),
         patch("model_radar.config.CONFIG_DIR", tmp_path),
     )
 

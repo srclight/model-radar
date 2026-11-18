@@ -43,6 +43,19 @@ Do **not** `kill` + `nohup` a second copy. The unit will respawn and you will fi
 
 Stored in `~/.model-radar/config.json` (mode 600). Env vars override.
 
+To keep the file on an encrypted or removable volume, point `MODEL_RADAR_CONFIG` at it. For the systemd unit, add the line under `[Service]` and reload:
+
+```ini
+Environment=MODEL_RADAR_CONFIG=/path/to/secure-volume/model-radar.json
+```
+
+```sh
+systemctl --user daemon-reload && ./scripts/restart-mcp.sh
+curl -s http://127.0.0.1:8743/healthz   # "config_ok": true once the volume is mounted
+```
+
+The unit can start before the volume is mounted. It then runs with no file keys and `config_ok: false`; because the file is read on each call, keys appear as soon as the volume is mounted, with no restart.
+
 ```sh
 model-radar configure minimax "$MINIMAX_API_KEY"
 # or MCP: configure_key(provider="minimax", api_key="…")
