@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.1 — 2026-11-18
+
+- **Fixed:** outbound requests sent a `User-Agent` with a stale version (0.5 to 0.13, depending on the call). Every request now sends the installed package version.
+- **Fixed:** the MCP handshake reported an empty server version. `serverInfo.version` now carries the package version.
+- Docs: the README opening describes what the server does today (free and paid providers, run, compare, judge).
+
 ## 0.15.0 — 2026-11-18
 
 - **`MODEL_RADAR_CONFIG`** names the config file to use in place of `~/.model-radar/config.json`, so keys can live on an encrypted or removable volume. Only that file is read and written. If it is missing, model-radar loads no keys from disk and reports the problem; it never falls back to the home directory and never creates the path.
