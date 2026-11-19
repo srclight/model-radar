@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 
+from . import USER_AGENT
 from .config import get_api_key, load_config
 from .providers import is_ollama_embedding as _is_ollama_embedding
 
@@ -73,7 +74,7 @@ async def fetch_openrouter_models(api_key: str | None = None) -> list[ProviderMo
     url = "https://openrouter.ai/api/v1/models"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
 
     async with httpx.AsyncClient() as client:
@@ -122,7 +123,7 @@ async def fetch_nvidia_models(api_key: str | None = None) -> list[ProviderModel]
     url = "https://integrate.api.nvidia.com/v1/models"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
 
     async with httpx.AsyncClient() as client:
@@ -165,7 +166,7 @@ async def fetch_groq_models(api_key: str | None = None) -> list[ProviderModel]:
     url = "https://api.groq.com/openai/v1/models"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
 
     async with httpx.AsyncClient() as client:
@@ -203,7 +204,7 @@ async def _fetch_openai_compatible_models(
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
 
     async with httpx.AsyncClient() as client:
@@ -257,7 +258,7 @@ async def fetch_huggingface_models(api_key: str | None = None) -> list[ProviderM
     url = "https://router.huggingface.co/v1/models"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
 
     async with httpx.AsyncClient() as client:
@@ -307,7 +308,7 @@ async def fetch_xai_models(api_key: str | None = None) -> list[ProviderModel]:
     url = "https://api.x.ai/v1/models"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "model-radar/0.8 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
 
     async with httpx.AsyncClient() as client:
@@ -344,7 +345,7 @@ async def fetch_vercel_models(api_key: str | None = None) -> list[ProviderModel]
     url = "https://ai-gateway.vercel.sh/v1/models"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "model-radar/0.13 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
 
     async with httpx.AsyncClient() as client:
@@ -383,7 +384,7 @@ async def fetch_googleai_models(api_key: str | None = None) -> list[ProviderMode
         return []
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    headers = {"User-Agent": "model-radar/0.8 (github.com/srclight/model-radar)"}
+    headers = {"User-Agent": USER_AGENT}
 
     async with httpx.AsyncClient() as client:
         try:
@@ -463,7 +464,7 @@ async def fetch_sealion_models(api_key: str | None = None) -> list[ProviderModel
 async def fetch_ollama_models(api_key: str | None = None) -> list[ProviderModel]:
     """List chat models from a local Ollama daemon (GET /api/tags). No API key."""
     url = "http://127.0.0.1:11434/api/tags"
-    headers = {"User-Agent": "model-radar/0.9 (github.com/srclight/model-radar)"}
+    headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(url, headers=headers, timeout=2.0)

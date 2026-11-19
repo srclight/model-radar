@@ -3,12 +3,12 @@
   "name": "io.github.srclight/model-radar",
   "title": "Model Radar",
   "description": "Live model catalogs across 23 API providers and 4 subscription CLIs, ranked by latency.",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "model-radar-mcp",
-      "version": "0.15.0",
+      "version": "0.15.1",
       "transport": {
         "type": "stdio"
       }

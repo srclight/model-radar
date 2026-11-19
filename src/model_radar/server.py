@@ -19,6 +19,8 @@ from mcp.server.mcpserver import MCPServer
 # arguments instead of silently discarding them, and advertises additionalProperties:false so
 # the advertised catalog matches what the runtime enforces.
 from ironmcp import strict_server
+
+from . import __version__
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -165,7 +167,7 @@ min_tier="A" means "A or better" (includes A+, S, S+).
   list_providers() reports its path and a config error if it did not load.
 """
 
-mcp = strict_server(name="model-radar", instructions=MCP_INSTRUCTIONS, reconnect_hint="check still_free / provider_status and reconnect the model-radar MCP")
+mcp = strict_server(name="model-radar", version=__version__, instructions=MCP_INSTRUCTIONS, reconnect_hint="check still_free / provider_status and reconnect the model-radar MCP")
 
 
 def health_payload() -> dict:
