@@ -1,7 +1,7 @@
 <!-- mcp-name: io.github.srclight/model-radar -->
 # model-radar
 
-MCP server that pings free coding LLM models across HTTPS providers and subscription CLIs (Claude Code, Grok, Antigravity/`agy`, Codex), ranks them by latency, and helps AI agents pick the fastest available model — or pin several subscriptions for a parallel review.
+MCP server that discovers live model catalogs across HTTPS providers (free and paid) and subscription CLIs (Claude Code, Grok, Antigravity/`agy`, Codex), ranks models by measured latency, and lets AI agents run a prompt on the fastest one, compare answers across several, or judge output with a panel of models.
 
 Inspired by [free-coding-models](https://github.com/vava-nessa/free-coding-models).
 

@@ -14,6 +14,7 @@ import time
 
 import httpx
 
+from . import USER_AGENT
 from .config import get_api_key, load_config
 from .cost import too_small_for_structured
 from .providers import PROVIDERS, Model
@@ -77,7 +78,7 @@ async def _call_model(
 
     headers = {
         "Content-Type": "application/json",
-        "User-Agent": "model-radar/0.5 (github.com/srclight/model-radar)",
+        "User-Agent": USER_AGENT,
     }
     if model.provider == "replicate":
         headers["Authorization"] = f"Token {api_key}"
